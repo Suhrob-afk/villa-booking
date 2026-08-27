@@ -1,0 +1,636 @@
+/* ==========================================================================
+   Villa CRM — a calendar tool, not a consumer app.
+   Neutral greys, one blue accent, generous whitespace, no decoration.
+   ========================================================================== */
+
+:root {
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-sunken: #f1f3f6;
+  --border: #e3e6ec;
+  --border-strong: #d3d8e0;
+
+  --text: #14181f;
+  --text-muted: #667085;
+  --text-faint: #98a2b3;
+
+  --accent: #2563eb;
+  --accent-strong: #1d4ed8;
+  --accent-soft: #dbe8fe;
+  --accent-soft-text: #1e40af;
+
+  --danger: #dc2626;
+  --danger-soft: #fee2e2;
+  --success: #047857;
+  --success-soft: #d1fae5;
+  --warning-soft: #fef3c7;
+  --warning-text: #92400e;
+
+  /* The two states the calendar lives on. */
+  --day-available: #d7e7fb;
+  --day-available-text: #1e40af;
+  --day-booked: #2563eb;
+  --day-booked-text: #ffffff;
+  --day-cancelled-ring: #d3d8e0;
+
+  --radius: 12px;
+  --radius-lg: 16px;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-lifted: 0 8px 24px rgba(16, 24, 40, 0.1);
+
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+[data-theme='dark'] {
+  --bg: #0f1319;
+  --surface: #171c24;
+  --surface-sunken: #1e242e;
+  --border: #262d38;
+  --border-strong: #333c49;
+
+  --text: #eef1f6;
+  --text-muted: #9aa4b4;
+  --text-faint: #6c7787;
+
+  --accent: #3b82f6;
+  --accent-strong: #60a5fa;
+  --accent-soft: #1e3a8a;
+  --accent-soft-text: #bfdbfe;
+
+  --danger: #f87171;
+  --danger-soft: #45191b;
+  --success: #34d399;
+  --success-soft: #0d3b2e;
+  --warning-soft: #422c07;
+  --warning-text: #fcd34d;
+
+  --day-available: #22344f;
+  --day-available-text: #93c5fd;
+  --day-booked: #3b82f6;
+  --day-booked-text: #0b1220;
+  --day-cancelled-ring: #333c49;
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-lifted: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  font-size: 15px;
+  line-height: 1.45;
+  overscroll-behavior-y: none;
+}
+
+button, input, select, textarea { font: inherit; color: inherit; }
+
+/* ------------------------------------------------------------- app shell -- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.screen {
+  flex: 1;
+  padding: 16px 16px calc(84px + env(safe-area-inset-bottom));
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar .subtitle {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.icon-button:active { background: var(--surface-sunken); }
+
+/* --------------------------------------------------------------- tabbar -- */
+
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border);
+}
+
+.tabbar button {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border: 0;
+  background: none;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.tabbar button.active { color: var(--accent); }
+
+/* ---------------------------------------------------------------- cards -- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+}
+
+.card + .card { margin-top: 12px; }
+
+.card-pad { padding: 16px; }
+
+.villa-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 16px;
+  cursor: pointer;
+}
+
+.villa-card:active { background: var(--surface-sunken); }
+
+.villa-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.villa-card-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.villa-meta {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.villa-rates {
+  display: flex;
+  gap: 16px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.rate { font-size: 13px; }
+.rate-label { display: block; color: var(--text-faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.rate-value { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------------- badge -- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.badge-accent { background: var(--accent-soft); color: var(--accent-soft-text); }
+.badge-success { background: var(--success-soft); color: var(--success); }
+.badge-warning { background: var(--warning-soft); color: var(--warning-text); }
+.badge-danger { background: var(--danger-soft); color: var(--danger); }
+
+/* -------------------------------------------------------------- buttons -- */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 13px 16px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button:disabled { opacity: 0.5; cursor: default; }
+.button:active:not(:disabled) { background: var(--accent-strong); }
+
+.button-secondary { background: var(--surface); color: var(--text); border-color: var(--border-strong); }
+.button-secondary:active:not(:disabled) { background: var(--surface-sunken); }
+
+.button-danger { background: transparent; color: var(--danger); border-color: var(--border-strong); }
+.button-danger:active:not(:disabled) { background: var(--danger-soft); }
+
+.button-row { display: flex; gap: 10px; margin-top: 16px; }
+
+.button-small { width: auto; padding: 7px 12px; font-size: 13px; border-radius: 9px; }
+
+/* ---------------------------------------------------------------- forms -- */
+
+.field { margin-bottom: 14px; }
+
+.field label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  outline: none;
+  appearance: none;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.field textarea { min-height: 76px; resize: vertical; }
+
+.field-hint { margin: 6px 0 0; font-size: 12px; color: var(--text-faint); }
+
+.field-row { display: flex; gap: 12px; }
+.field-row > * { flex: 1; min-width: 0; }
+
+.section-title {
+  margin: 24px 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+
+.section-title:first-child { margin-top: 0; }
+
+/* ------------------------------------------------------------- summaries -- */
+
+.summary { padding: 4px 0; }
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 0;
+  font-size: 14px;
+}
+
+.summary-row + .summary-row { border-top: 1px solid var(--border); }
+.summary-row dt { color: var(--text-muted); }
+.summary-row dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.summary-row.total dd { font-size: 17px; }
+.summary-row.muted dd { font-weight: 500; color: var(--text-muted); }
+
+/* -------------------------------------------------------------- calendar -- */
+
+.calendar { padding: 8px 4px 4px; }
+
+.calendar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px 14px;
+}
+
+.calendar-month {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.calendar-nav { display: flex; gap: 6px; }
+
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  padding: 0 4px 6px;
+}
+
+.calendar-weekdays span {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+.calendar-grid { padding: 0 4px 8px; }
+
+.calendar-week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+/* Each cell is a square track; the circle sits centred inside it. The
+   ::before / ::after bars bridge the gap to a booked neighbour so a
+   multi-night stay reads as one solid strip rather than seven dots. */
+.day {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1 / 1;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.day-circle {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 82%;
+  height: 82%;
+  max-width: 44px;
+  max-height: 44px;
+  border-radius: 50%;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.day.outside { visibility: hidden; }
+
+.day.past .day-circle { color: var(--text-faint); }
+
+.day.available {
+  cursor: pointer;
+  color: var(--day-available-text);
+}
+
+.day.available .day-circle {
+  background: var(--day-available);
+  color: var(--day-available-text);
+  font-weight: 600;
+}
+
+.day.booked { cursor: pointer; }
+
+.day.booked .day-circle {
+  background: var(--day-booked);
+  color: var(--day-booked-text);
+  font-weight: 600;
+}
+
+.day.booked.link-left::before,
+.day.booked.link-right::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: min(82%, 44px);
+  width: 58%;
+  background: var(--day-booked);
+}
+
+/* Each bar runs a pixel past its cell edge so that two neighbouring bars
+   overlap instead of meeting on a subpixel boundary, which would show as a
+   hairline seam down a strip. */
+.day.booked.link-left::before { left: -1px; }
+.day.booked.link-right::after { right: -1px; }
+
+.day.today .day-circle {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.day.today.booked .day-circle {
+  box-shadow: inset 0 0 0 2px var(--surface);
+}
+
+.day:active .day-circle { transform: scale(0.94); }
+
+.calendar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 14px 16px 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.legend-item { display: flex; align-items: center; gap: 7px; }
+
+.legend-dot { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+.legend-dot.available { background: var(--day-available); }
+.legend-dot.booked { background: var(--day-booked); }
+.legend-dot.past { background: var(--surface-sunken); border: 1px solid var(--border-strong); }
+
+/* ------------------------------------------------------------- list rows -- */
+
+.list { border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border); background: var(--surface); }
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 13px 14px;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row + .row { border-top: 1px solid var(--border); }
+.row:active { background: var(--surface-sunken); }
+.row-main { flex: 1; min-width: 0; }
+.row-title { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-sub { font-size: 12.5px; color: var(--text-muted); margin-top: 2px; }
+.row-amount { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.row-amount .row-sub { text-align: right; }
+.row-static { cursor: default; }
+.row-static:active { background: none; }
+
+/* --------------------------------------------------------------- states -- */
+
+.center-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 60vh;
+  padding: 32px 24px;
+  text-align: center;
+}
+
+.center-state h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.center-state p { margin: 0; color: var(--text-muted); font-size: 14px; max-width: 320px; }
+
+.empty {
+  padding: 40px 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.empty strong { display: block; color: var(--text); font-size: 15px; margin-bottom: 4px; }
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  animation: spin 700ms linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.alert {
+  padding: 11px 13px;
+  border-radius: var(--radius);
+  font-size: 13.5px;
+  margin-bottom: 14px;
+}
+
+.alert-error { background: var(--danger-soft); color: var(--danger); }
+.alert-info { background: var(--accent-soft); color: var(--accent-soft-text); }
+
+.role-cards { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 340px; }
+
+.role-card {
+  padding: 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.role-card:active { border-color: var(--accent); background: var(--surface-sunken); }
+.role-card strong { display: block; font-size: 15px; margin-bottom: 2px; }
+.role-card span { font-size: 13px; color: var(--text-muted); }
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.toggle.paid { background: var(--success-soft); border-color: transparent; color: var(--success); }
+
+.group-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 22px 0 8px;
+}
+
+.group-header h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.group-header .group-total { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.stat-strip { display: flex; gap: 10px; margin-bottom: 16px; }
+
+.stat {
+  flex: 1;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); }
+.stat-value { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
