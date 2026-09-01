@@ -4,14 +4,15 @@ import {
   createVilla,
   deleteVilla,
   fetchVilla,
-  fetchVillaManagers,
-  linkManager,
-  unlinkManager,
+  fetchVillaMaklers,
+  linkMakler,
+  unlinkMakler,
   updateVilla,
   type VillaInput,
 } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { CURRENCIES } from '../lib/format'
+import { useI18n } from '../lib/i18n'
 import { confirmAction, notify } from '../lib/telegram'
 import { useBackButton } from '../lib/useBackButton'
 import type { User } from '../lib/types'
@@ -26,7 +27,11 @@ interface FormState {
   commission_percent: string
   platform_fee_percent: string
   capacity: string
+  deposit_amount: string
 }
+
+/** Mirrors the villas deposit check in the database. */
+const MIN_DEPOSIT = 200000
 
 const BLANK: FormState = {
   name: '',
@@ -37,6 +42,7 @@ const BLANK: FormState = {
   commission_percent: '10',
   platform_fee_percent: '0',
   capacity: '',
+  deposit_amount: '250000',
 }
 
 function toInput(form: FormState): VillaInput {
@@ -49,19 +55,22 @@ function toInput(form: FormState): VillaInput {
     commission_rate: (Number(form.commission_percent) || 0) / 100,
     platform_fee_rate: (Number(form.platform_fee_percent) || 0) / 100,
     capacity: form.capacity ? Number(form.capacity) : null,
+    deposit_amount: Number(form.deposit_amount) || 0,
   }
 }
 
-/** Villa Setup — owner only. Rates, commission and the manager roster. */
+/** Villa Setup — owner only. Rates, commission and the makler roster. */
 export default function VillaSetup() {
   const { villaId } = useParams<{ villaId: string }>()
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { t } = useI18n()
   const isNew = !villaId
 
   const [form, setForm] = useState<FormState>(BLANK)
   const [managers, setManagers] = useState<User[]>([])
-  const [managerInput, setManagerInput] = useState('')
+  const [villaCode, setVillaCode] = useState<string | null>(null)
+  const [maklerInput, setMaklerInput] = useState('')
   const [loading, setLoading] = useState(!isNew)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -75,7 +84,7 @@ export default function VillaSetup() {
     setLoading(true)
     setLoadError(null)
     try {
-      const [villa, roster] = await Promise.all([fetchVilla(villaId), fetchVillaManagers(villaId)])
+      const [villa, roster] = await Promise.all([fetchVilla(villaId), fetchVillaMaklers(villaId)])
       setForm({
         name: villa.name,
         location: villa.location ?? '',
@@ -85,7 +94,9 @@ export default function VillaSetup() {
         commission_percent: String(round4(villa.commission_rate * 100)),
         platform_fee_percent: String(round4(villa.platform_fee_rate * 100)),
         capacity: villa.capacity ? String(villa.capacity) : '',
+        deposit_amount: String(villa.deposit_amount),
       })
+      setVillaCode(villa.villa_code)
       setManagers(roster)
     } catch (err) {
       setLoadError((err as Error).message)
@@ -99,12 +110,12 @@ export default function VillaSetup() {
   }, [load])
 
   if (!user) return null
-  if (user.role !== 'owner') {
+  if (!user.is_owner) {
     return (
       <>
-        <TopBar title="Villa setup" onBack={goBack} />
+        <TopBar title={t('setup.title')} onBack={goBack} />
         <main className="screen">
-          <Alert>Only the villa owner can change rates and commission.</Alert>
+          <Alert>{t('setup.ownerOnly')}</Alert>
         </main>
       </>
     )
@@ -115,7 +126,7 @@ export default function VillaSetup() {
 
   async function save() {
     if (!form.name.trim()) {
-      setError('Give the villa a name.')
+      setError(t('setup.nameRequired'))
       return
     }
     setSaving(true)
@@ -139,17 +150,17 @@ export default function VillaSetup() {
     }
   }
 
-  async function addManager() {
-    const telegramId = Number(managerInput.trim())
-    if (!telegramId) {
-      setError('Enter the manager’s numeric Telegram ID.')
+  async function addMakler() {
+    const reference = maklerInput.trim()
+    if (!reference) {
+      setError(t('setup.referenceRequired'))
       return
     }
     setError(null)
     try {
-      const manager = await linkManager(villaId!, telegramId)
+      const manager = await linkMakler(villaId!, reference)
       setManagers((current) => (current.some((m) => m.id === manager.id) ? current : [...current, manager]))
-      setManagerInput('')
+      setMaklerInput('')
       notify('success')
     } catch (err) {
       notify('error')
@@ -157,10 +168,10 @@ export default function VillaSetup() {
     }
   }
 
-  async function removeManager(manager: User) {
-    if (!(await confirmAction(`Remove ${manager.name} from this villa?`))) return
+  async function removeMakler(manager: User) {
+    if (!(await confirmAction(t('setup.removeMaklerConfirm', { name: manager.name })))) return
     try {
-      await unlinkManager(villaId!, manager.id)
+      await unlinkMakler(villaId!, manager.id)
       setManagers((current) => current.filter((m) => m.id !== manager.id))
     } catch (err) {
       setError((err as Error).message)
@@ -168,7 +179,7 @@ export default function VillaSetup() {
   }
 
   async function removeVilla() {
-    if (!(await confirmAction('Delete this villa and all of its bookings? This cannot be undone.'))) return
+    if (!(await confirmAction(t('setup.deleteVillaConfirm')))) return
     try {
       await deleteVilla(villaId!)
       navigate('/', { replace: true })
@@ -182,27 +193,32 @@ export default function VillaSetup() {
 
   return (
     <>
-      <TopBar title={isNew ? 'New villa' : 'Villa setup'} onBack={goBack} />
+      <TopBar title={isNew ? t('setup.titleNew') : t('setup.title')} subtitle={villaCode ?? undefined} onBack={goBack} />
       <main className="screen">
         {error && <Alert>{error}</Alert>}
 
         <div className="card card-pad">
           <div className="field">
-            <label htmlFor="name">Villa name</label>
-            <input id="name" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Chorvoq House" />
+            <label htmlFor="name">{t('setup.nameLabel')}</label>
+            <input
+              id="name"
+              value={form.name}
+              onChange={(e) => set('name', e.target.value)}
+              placeholder={t('setup.namePlaceholder')}
+            />
           </div>
           <div className="field">
-            <label htmlFor="location">Location</label>
+            <label htmlFor="location">{t('setup.locationLabel')}</label>
             <input
               id="location"
               value={form.location}
               onChange={(e) => set('location', e.target.value)}
-              placeholder="Chorvoq, Tashkent region"
+              placeholder={t('setup.locationPlaceholder')}
             />
           </div>
           <div className="field-row">
             <div className="field">
-              <label htmlFor="currency">Currency</label>
+              <label htmlFor="currency">{t('setup.currencyLabel')}</label>
               <select id="currency" value={form.currency} onChange={(e) => set('currency', e.target.value)}>
                 {CURRENCIES.map((code) => (
                   <option key={code} value={code}>
@@ -212,7 +228,7 @@ export default function VillaSetup() {
               </select>
             </div>
             <div className="field">
-              <label htmlFor="capacity">Capacity</label>
+              <label htmlFor="capacity">{t('setup.capacityLabel')}</label>
               <input
                 id="capacity"
                 type="number"
@@ -224,14 +240,14 @@ export default function VillaSetup() {
               />
             </div>
           </div>
-          <p className="field-hint">Currency is set per villa — mixing USD and UZS villas is fine.</p>
+          <p className="field-hint">{t('setup.currencyHint')}</p>
         </div>
 
-        <p className="section-title">Nightly rates</p>
+        <p className="section-title">{t('setup.ratesTitle')}</p>
         <div className="card card-pad">
           <div className="field-row">
             <div className="field">
-              <label htmlFor="weekday">Weekday (Mon–Fri)</label>
+              <label htmlFor="weekday">{t('setup.weekdayLabel')}</label>
               <input
                 id="weekday"
                 type="number"
@@ -243,7 +259,7 @@ export default function VillaSetup() {
               />
             </div>
             <div className="field">
-              <label htmlFor="weekend">Weekend (Sat–Sun)</label>
+              <label htmlFor="weekend">{t('setup.weekendLabel')}</label>
               <input
                 id="weekend"
                 type="number"
@@ -255,14 +271,28 @@ export default function VillaSetup() {
               />
             </div>
           </div>
-          <p className="field-hint">Used to pre-fill booking totals. Managers can still adjust a total by hand.</p>
+          <p className="field-hint">{t('setup.ratesHint')}</p>
+
+          <div className="field" style={{ marginTop: 14, marginBottom: 0 }}>
+            <label htmlFor="deposit">{t('setup.depositLabel')}</label>
+            <input
+              id="deposit"
+              type="number"
+              inputMode="decimal"
+              min="200000"
+              step="1000"
+              value={form.deposit_amount}
+              onChange={(e) => set('deposit_amount', e.target.value)}
+            />
+            <p className="field-hint">{t('setup.depositHint', { min: MIN_DEPOSIT.toLocaleString('en-US') })}</p>
+          </div>
         </div>
 
-        <p className="section-title">Commission</p>
+        <p className="section-title">{t('setup.commissionTitle')}</p>
         <div className="card card-pad">
           <div className="field-row">
             <div className="field">
-              <label htmlFor="commission">Manager commission %</label>
+              <label htmlFor="commission">{t('setup.commissionLabel')}</label>
               <input
                 id="commission"
                 type="number"
@@ -275,7 +305,7 @@ export default function VillaSetup() {
               />
             </div>
             <div className="field">
-              <label htmlFor="platform">Platform fee %</label>
+              <label htmlFor="platform">{t('setup.platformFeeLabel')}</label>
               <input
                 id="platform"
                 type="number"
@@ -288,61 +318,63 @@ export default function VillaSetup() {
               />
             </div>
           </div>
-          <p className="field-hint">
-            Changing these only affects new bookings — existing bookings keep the rate they were created with.
-          </p>
+          <p className="field-hint">{t('setup.commissionHint')}</p>
         </div>
 
         {!isNew && (
           <>
-            <p className="section-title">Managers</p>
+            <p className="section-title">{t('setup.maklersTitle')}</p>
             <div className="list">
-              {managers.length === 0 && <div className="empty">No managers linked yet.</div>}
+              {managers.length === 0 && <div className="empty">{t('setup.noMaklers')}</div>}
               {managers.map((manager) => (
                 <div className="row row-static" key={manager.id}>
                   <div className="row-main">
                     <div className="row-title">{manager.name}</div>
-                    <div className="row-sub">Telegram ID {manager.telegram_id}</div>
+                    <div className="row-sub">
+                      {manager.oikoz_id}
+                    </div>
                   </div>
                   <button
                     type="button"
                     className="button button-danger button-small"
-                    onClick={() => void removeManager(manager)}
+                    onClick={() => void removeMakler(manager)}
                   >
-                    Remove
+                    {t('common.remove')}
                   </button>
                 </div>
               ))}
             </div>
             <div className="card card-pad" style={{ marginTop: 12 }}>
               <div className="field" style={{ marginBottom: 10 }}>
-                <label htmlFor="manager-id">Add manager by Telegram ID</label>
+                <label htmlFor="makler-ref">{t('setup.addMaklerLabel')}</label>
                 <input
-                  id="manager-id"
-                  inputMode="numeric"
-                  value={managerInput}
-                  onChange={(e) => setManagerInput(e.target.value)}
-                  placeholder="123456789"
+                  id="makler-ref"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  value={maklerInput}
+                  onChange={(e) => setMaklerInput(e.target.value)}
+                  placeholder="oikoz_id0001"
                 />
               </div>
-              <button type="button" className="button button-secondary" onClick={() => void addManager()}>
-                Link manager
+              <button type="button" className="button button-secondary" onClick={() => void addMakler()}>
+                {t('setup.linkMakler')}
               </button>
-              <p className="field-hint">They need to have opened the app once and signed up as a manager.</p>
+              <p className="field-hint">{t('setup.addMaklerHint')}</p>
             </div>
           </>
         )}
 
         <div className="button-row">
           <button type="button" className="button" disabled={saving} onClick={() => void save()}>
-            {saving ? 'Saving…' : isNew ? 'Create villa' : 'Save changes'}
+            {saving ? t('common.saving') : isNew ? t('setup.createVilla') : t('common.saveChanges')}
           </button>
         </div>
 
         {!isNew && (
           <div className="button-row">
             <button type="button" className="button button-danger" onClick={() => void removeVilla()}>
-              Delete villa
+              {t('setup.deleteVilla')}
             </button>
           </div>
         )}

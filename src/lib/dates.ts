@@ -2,13 +2,17 @@
  * Calendar dates are handled as local-midnight Date objects and 'YYYY-MM-DD'
  * strings. Nothing here ever touches UTC conversion, so a booking never slips
  * a day for users east or west of the server.
+ *
+ * Anything that produces text a person reads takes the language explicitly —
+ * month and weekday names live in lib/strings.ts with the rest of the copy.
  */
 
-export const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-const MONTH_LABELS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-]
+import { MONTHS_SHORT, MONTHS_STANDALONE, WEEKDAYS, plural } from './strings'
+import type { Lang } from './types'
+
+export function weekdayLabels(lang: Lang): string[] {
+  return WEEKDAYS[lang]
+}
 
 export function toISODate(date: Date): string {
   const y = date.getFullYear()
@@ -51,8 +55,8 @@ export function isWeekend(date: Date): boolean {
   return day === 0 || day === 6
 }
 
-export function monthLabel(date: Date): string {
-  return `${MONTH_LABELS[date.getMonth()]} ${date.getFullYear()}`
+export function monthLabel(date: Date, lang: Lang): string {
+  return `${MONTHS_STANDALONE[lang][date.getMonth()]} ${date.getFullYear()}`
 }
 
 /**
@@ -90,12 +94,56 @@ export function nightCount(checkInISO: string, checkOutISO: string): number {
   return Math.max(0, Math.round(ms / 86_400_000))
 }
 
-export function formatDateShort(iso: string): string {
+export function formatDateShort(iso: string, lang: Lang): string {
   const d = parseISODate(iso)
-  return `${d.getDate()} ${MONTH_LABELS[d.getMonth()].slice(0, 3)}`
+  return `${d.getDate()} ${MONTHS_SHORT[lang][d.getMonth()]}`
 }
 
-export function formatRange(checkIn: string, checkOut: string): string {
+export function formatRange(checkIn: string, checkOut: string, lang: Lang): string {
   const nights = nightCount(checkIn, checkOut)
-  return `${formatDateShort(checkIn)} – ${formatDateShort(checkOut)} · ${nights} night${nights === 1 ? '' : 's'}`
+  return `${formatDateShort(checkIn, lang)} – ${formatDateShort(checkOut, lang)} · ${plural(lang, 'nights', nights)}`
+}
+
+// ------------------------------------------------------------- periods ----
+
+export type PeriodUnit = 'week' | 'month' | 'year'
+
+/** Monday-first, matching the calendar grid. */
+export function startOfWeek(date: Date): Date {
+  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  return addDays(day, -((day.getDay() + 6) % 7))
+}
+
+/** Half-open [start, end): the same convention bookings and blocks use. */
+export function periodRange(anchor: Date, unit: PeriodUnit): { start: Date; end: Date } {
+  if (unit === 'week') {
+    const start = startOfWeek(anchor)
+    return { start, end: addDays(start, 7) }
+  }
+  if (unit === 'month') {
+    const start = startOfMonth(anchor)
+    return { start, end: addMonths(start, 1) }
+  }
+  const start = new Date(anchor.getFullYear(), 0, 1)
+  return { start, end: new Date(anchor.getFullYear() + 1, 0, 1) }
+}
+
+export function shiftPeriod(anchor: Date, unit: PeriodUnit, delta: number): Date {
+  if (unit === 'week') return addDays(anchor, 7 * delta)
+  if (unit === 'month') return addMonths(anchor, delta)
+  return new Date(anchor.getFullYear() + delta, 0, 1)
+}
+
+export function periodLabel(anchor: Date, unit: PeriodUnit, lang: Lang): string {
+  const { start, end } = periodRange(anchor, unit)
+  if (unit === 'year') return String(start.getFullYear())
+  if (unit === 'month') return monthLabel(start, lang)
+  const last = addDays(end, -1)
+  return `${formatDateShort(toISODate(start), lang)} – ${formatDateShort(toISODate(last), lang)}, ${last.getFullYear()}`
+}
+
+/** True when an ISO date falls inside the half-open period. */
+export function isWithin(iso: string, range: { start: Date; end: Date }): boolean {
+  const date = parseISODate(iso)
+  return date >= range.start && date < range.end
 }

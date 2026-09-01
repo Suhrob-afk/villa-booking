@@ -31,6 +31,8 @@
   --day-available-text: #1e40af;
   --day-booked: #2563eb;
   --day-booked-text: #ffffff;
+  --day-blocked: #cbd2dc;
+  --day-blocked-text: #4a5462;
   --day-cancelled-ring: #d3d8e0;
 
   --radius: 12px;
@@ -68,6 +70,8 @@
   --day-available-text: #93c5fd;
   --day-booked: #3b82f6;
   --day-booked-text: #0b1220;
+  --day-blocked: #3a4351;
+  --day-blocked-text: #c3cbd7;
   --day-cancelled-ring: #333c49;
 
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -103,7 +107,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .screen {
   flex: 1;
-  padding: 16px 16px calc(84px + env(safe-area-inset-bottom));
+  padding: 16px 16px calc(96px + env(safe-area-inset-bottom));
 }
 
 .topbar {
@@ -154,6 +158,92 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .icon-button:active { background: var(--surface-sunken); }
 
+/* Header action cluster: the language control plus anything role-specific. */
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+/* ----------------------------------------------------- language control -- */
+
+.lang-control {
+  position: relative;
+  flex: none;
+}
+
+.lang-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.lang-button:active { background: var(--surface-sunken); }
+.lang-button[aria-expanded='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Anchored under the button. The topbar is sticky at z-index 20, so the menu
+   sits above the page content without needing a portal. */
+.lang-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  min-width: 180px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lifted);
+  overflow: hidden;
+}
+
+.lang-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 13px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lang-menu button + button { border-top: 1px solid var(--border); }
+.lang-menu button:active { background: var(--surface-sunken); }
+.lang-menu button:disabled { opacity: 0.6; }
+.lang-menu button[aria-checked='true'] {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.lang-error {
+  margin: 0;
+  padding: 10px 13px;
+  border-top: 1px solid var(--border);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 12.5px;
+}
+
 /* --------------------------------------------------------------- tabbar -- */
 
 .tabbar {
@@ -165,7 +255,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   display: flex;
   max-width: 520px;
   margin: 0 auto;
-  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  padding: 8px 8px calc(10px + env(safe-area-inset-bottom));
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(12px);
   border-top: 1px solid var(--border);
@@ -176,15 +266,22 @@ button, input, select, textarea { font: inherit; color: inherit; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  justify-content: center;
+  gap: 5px;
+  /* Roomier than the old 8px: with a 24px icon this clears the ~44px
+     minimum tap target without the labels touching the bar's edges. */
+  min-height: 54px;
   padding: 8px 4px;
   border: 0;
   background: none;
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 500;
+  letter-spacing: 0.01em;
   cursor: pointer;
 }
+
+.tabbar button svg { display: block; }
 
 .tabbar button.active { color: var(--accent); }
 
@@ -480,6 +577,28 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .day.booked.link-left::before { left: -1px; }
 .day.booked.link-right::after { right: -1px; }
 
+.day.blocked { cursor: pointer; }
+
+.day.blocked .day-circle {
+  background: var(--day-blocked);
+  color: var(--day-blocked-text);
+  font-weight: 600;
+}
+
+.day.blocked.link-left::before,
+.day.blocked.link-right::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: min(82%, 44px);
+  width: 58%;
+  background: var(--day-blocked);
+}
+
+.day.blocked.link-left::before { left: -1px; }
+.day.blocked.link-right::after { right: -1px; }
+
 .day.today .day-circle {
   box-shadow: inset 0 0 0 2px var(--accent);
 }
@@ -506,6 +625,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .legend-dot { width: 14px; height: 14px; border-radius: 50%; flex: none; }
 .legend-dot.available { background: var(--day-available); }
 .legend-dot.booked { background: var(--day-booked); }
+.legend-dot.blocked { background: var(--day-blocked); }
 .legend-dot.past { background: var(--surface-sunken); border: 1px solid var(--border-strong); }
 
 /* ------------------------------------------------------------- list rows -- */
@@ -634,3 +754,154 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); }
 .stat-value { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+
+/* -------------------------------------------------------- onboarding roles -- */
+
+.role-card-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.role-card-selected strong { color: var(--accent-soft-text); }
+
+/* --------------------------------------------------------- role segmented -- */
+
+.segmented {
+  display: flex;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.segmented-item {
+  flex: 1;
+  padding: 9px 12px;
+  border: none;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.segmented-item + .segmented-item { border-left: 1px solid var(--border-strong); }
+.segmented-item-active { background: var(--accent); color: #fff; }
+
+/* The tapped-but-not-yet-booked day, while its info card is open. */
+.day.selected .day-circle {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.day-card {
+  margin-top: 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 14px 16px;
+  box-shadow: var(--shadow-lifted);
+}
+
+.day-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.day-card-head h4 { margin: 0; font-size: 15px; font-weight: 600; }
+.day-card-head .day-card-date { font-size: 12.5px; color: var(--text-muted); }
+
+.day-card-muted { border-color: var(--border-strong); }
+
+.day-card-dismiss {
+  border: 0;
+  background: none;
+  color: var(--text-faint);
+  font-size: 20px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+/* The merged nights + payout card: one surface, two figures, tappable. */
+.stat-card-link {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  margin-bottom: 16px;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.stat-card-link:active { background: var(--surface-sunken); }
+
+.stat-figure {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 14px;
+}
+
+.stat-figure + .stat-figure { border-left: 1px solid var(--border); }
+
+.stat-figure .stat-label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+}
+
+.stat-figure .stat-value {
+  display: block;
+  margin-top: 2px;
+  font-size: 17px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-card-chevron {
+  display: flex;
+  align-items: center;
+  padding-right: 12px;
+  padding-left: 4px;
+  color: var(--text-faint);
+  font-size: 20px;
+}
+
+/* Period stepper on the breakdown screen — same weight as the calendar's. */
+.period-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.period-label {
+  flex: 1;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Inline label + toggle, e.g. "Deposit paid by client?" */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  font-size: 14px;
+}
+
+/* Small "deposit pending" flag used in booking lists. */
+.badge-pending {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}

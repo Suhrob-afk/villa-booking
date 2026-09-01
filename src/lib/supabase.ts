@@ -19,6 +19,10 @@ export function setAccessToken(token: string | null): void {
   accessToken = token
 }
 
+export function getAccessToken(): string | null {
+  return accessToken
+}
+
 const authedFetch: typeof fetch = (input, init = {}) => {
   const headers = new Headers(init.headers ?? {})
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
@@ -36,7 +40,12 @@ export interface AuthResponse {
   token?: string
   expiresAt?: number
   user?: import('./types').User
-  needsRole?: boolean
+  /**
+   * No users row for this Telegram id. Registration happens in the bot
+   * conversation before the Mini App is ever opened, so there is nothing for
+   * the app to collect -- it just points the person back at the bot.
+   */
+  needsRegistration?: boolean
   telegram?: { id: number; name: string }
   error?: string
 }
@@ -45,8 +54,6 @@ export interface AuthResponse {
 export async function callTelegramAuth(payload: {
   initData?: string
   devTelegramId?: number
-  role?: 'owner' | 'manager'
-  name?: string
 }): Promise<AuthResponse> {
   const response = await fetch(`${url}/functions/v1/telegram-auth`, {
     method: 'POST',

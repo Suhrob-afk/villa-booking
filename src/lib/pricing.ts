@@ -1,5 +1,5 @@
 import { isWeekend, nightsBetween } from './dates'
-import type { Villa } from './types'
+import type { PricingMode, Villa } from './types'
 
 export interface Quote {
   nights: number
@@ -40,10 +40,29 @@ export interface Split {
 /**
  * Mirrors the bookings_compute() trigger exactly, so the live preview in the
  * form matches what the database will store.
+ *
+ * percentage: the makler takes a cut of the total, the owner gets the rest.
+ * owner_net:  the owner's figure is fixed and the makler keeps the spread.
  */
-export function splitTotal(total: number, commissionRate: number, platformFeeRate: number): Split {
+export function splitTotal(
+  total: number,
+  commissionRate: number,
+  platformFeeRate: number,
+  mode: PricingMode = 'percentage',
+  ownerNet = 0,
+): Split {
   const safeTotal = Number.isFinite(total) ? total : 0
   const platformFee = round2(safeTotal * platformFeeRate)
+
+  if (mode === 'owner_net') {
+    const safeNet = Number.isFinite(ownerNet) ? ownerNet : 0
+    return {
+      platformFee,
+      managerCommission: round2(safeTotal - safeNet - platformFee),
+      ownerPayout: round2(safeNet),
+    }
+  }
+
   const managerCommission = round2(safeTotal * commissionRate)
   return {
     platformFee,

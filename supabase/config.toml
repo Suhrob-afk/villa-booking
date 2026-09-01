@@ -415,3 +415,7 @@ enabled = true
 [functions.telegram-auth]
 # This function issues the app's JWT, so it cannot require one to be called.
 verify_jwt = false
+
+[functions.telegram-bot-webhook]
+# Telegram signs webhook calls with a secret_token header, not a Supabase JWT.
+verify_jwt = false

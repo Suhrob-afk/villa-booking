@@ -14,6 +14,8 @@ interface TelegramWebApp {
     impactOccurred(style: 'light' | 'medium' | 'heavy'): void
     notificationOccurred(type: 'error' | 'success' | 'warning'): void
   }
+  onEvent?(event: string, cb: () => void): void
+  offEvent?(event: string, cb: () => void): void
   showConfirm?(message: string, cb: (ok: boolean) => void): void
   showAlert?(message: string, cb?: () => void): void
 }
@@ -58,4 +60,29 @@ export function confirmAction(message: string): Promise<boolean> {
     return new Promise((resolve) => app.showConfirm!(message, resolve))
   }
   return Promise.resolve(window.confirm(message))
+}
+
+/**
+ * Fires whenever the Mini App comes back to the foreground. Telegram may reuse
+ * a live WebView instead of reloading it, so "opened again" is not the same as
+ * "mounted again" — several signals are wired up because coverage differs by
+ * client version (`activated` needs Bot API 8.0).
+ */
+export function onForeground(handler: () => void): () => void {
+  const onVisible = () => {
+    if (document.visibilityState === 'visible') handler()
+  }
+  document.addEventListener('visibilitychange', onVisible)
+  window.addEventListener('pageshow', onVisible)
+  window.addEventListener('focus', onVisible)
+
+  const app = tg()
+  app?.onEvent?.('activated', handler)
+
+  return () => {
+    document.removeEventListener('visibilitychange', onVisible)
+    window.removeEventListener('pageshow', onVisible)
+    window.removeEventListener('focus', onVisible)
+    app?.offEvent?.('activated', handler)
+  }
 }

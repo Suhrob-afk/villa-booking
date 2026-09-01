@@ -1,18 +1,24 @@
 # Villa CRM — Telegram Mini App
 
 A booking and commission tool for villa rentals, built as a Telegram Mini App on
-Supabase. Two roles, many-to-many: an owner has villas, a manager works the
-villas they are assigned to, and one villa can have several managers.
+Supabase. A person can be an **owner**, a **Makler** (manager), or both at once
+— an owner has villas, a manager works the villas they're assigned to, one
+villa can have several managers, and the same person routinely plays both
+parts (a Makler who also owns a villa or two, an owner who occasionally books
+for other owners).
 
 ```
 src/
   lib/         supabase client, Telegram bridge, auth, dates, pricing, data access
   components/  MonthCalendar (the Calendly-style grid) + shared UI
-  screens/     Home · VillaSetup · VillaCalendar · BookingScreen · Commissions
+  screens/     Onboarding · Home · VillaSetup · VillaCalendar · BookingScreen · Commissions
 supabase/
-  migrations/0001_init.sql        schema, money triggers, RLS policies
-  functions/telegram-auth/        initData verification → Supabase JWT
-  seed.sql                        optional demo data
+  migrations/0001_init.sql              schema, money triggers, RLS policies
+  migrations/0002_revoke_anon.sql       locks the anon role out of every table
+  migrations/0003_multi_role_oikoz_id.sql  dual roles, oikoz_id, telegram_id lockdown
+  functions/telegram-auth/              initData verification, registration → Supabase JWT
+  functions/link-manager/               links a manager by oikoz_id, DMs them on success
+  seed.sql                              optional demo data
 ```
 
 ## How identity works
@@ -23,31 +29,91 @@ There is no Supabase Auth (GoTrue) user. Instead:
    Function.
 2. The function verifies the HMAC with the bot token, so the payload provably
    came from Telegram, and rejects initData older than 24h.
-3. It finds or creates `public.users` by `telegram_id`. On a first login the
-   client must supply the role picked on the welcome screen (`owner` /
-   `manager`).
-4. It mints an HS256 JWT signed with the project's JWT secret, with
+3. It looks up `public.users` by `telegram_id`. If the person doesn't exist
+   yet (or is missing a name/phone/role), the function replies
+   `{ needsRegistration: true, missingFields, telegram: { id, name } }`
+   instead of a token, and the app shows the **Onboarding** screen — full
+   name, contact number, and one or both of "I own villas" / "I manage
+   bookings". Submitting that calls the same function again with the answers,
+   which creates the row and mints the token in one round trip.
+4. On creation, a Postgres function (`generate_oikoz_id()`) mints a unique
+   public id like `oikoz_id0001` — this, never the Telegram id, is what people
+   hand each other to link accounts (see below).
+5. The function mints an HS256 JWT signed with the project's JWT secret, with
    `sub = users.id` and `role = authenticated`.
-5. The client attaches that token to every PostgREST request, so `auth.uid()`
+6. The client attaches that token to every PostgREST request, so `auth.uid()`
    inside RLS policies **is** `public.users.id`.
+
+`telegram_id` is column-privilege-revoked from the `authenticated` role at the
+database level (migration `0003`) — it is never selectable by a signed-in
+client, not even by accident through `select('*')`. `oikoz_id` is the only
+identifier that ever reaches the frontend.
+
+## Roles: `is_owner` / `is_manager`
+
+Earlier drafts used a single `role` enum. v1 uses two independent booleans
+instead, because the two roles are not mutually exclusive in practice:
+
+- `is_owner` — can create/edit villas, set rates and commission, link and
+  unlink managers, mark commissions paid.
+- `is_manager` — can create bookings on villas they're linked to, and sees
+  their own commission.
+- Both — Home and Commissions show an owner section and a manager section
+  side by side (or a segmented "As owner / As manager" toggle on Commissions),
+  instead of forcing a single view.
+
+At least one must be true (`users_has_a_role` check constraint); registration
+enforces this in the UI too. Once set at signup, a person can't flip their own
+roles later — that needs the service role, same as before.
+
+**Owner and Makler are sections, not screens.** `Home` is a single component
+that renders "My Villas" and/or "Villas Assigned to Me" from the two flags,
+under one `ProfileHeader`; the bottom nav is rendered once in `App.tsx`,
+outside the routes. Nothing about the header or nav is written twice, so a
+change to either lands in every view at once. Anything role-specific goes in
+`ProfileHeader`'s `action` slot (today: the owner's "add villa" button) rather
+than into a second copy of the header.
+
+## Linking a manager to a villa
+
+1. Every user gets an `oikoz_id` the moment they register (owner or manager,
+   doesn't matter — it's not role-specific).
+2. A manager shares their `oikoz_id` with an owner (in person, in chat,
+   however).
+3. The owner opens **Villa setup → Managers → Add manager by oikoz ID** and
+   enters it. This calls the `link-manager` Edge Function, which runs the
+   `link_manager_by_oikoz_id` RPC under the caller's own JWT (so ordinary RLS
+   decides whether the link is allowed — the function doesn't reimplement
+   permission checks) and, on success, sends the manager a Telegram DM telling
+   them which villa and owner just added them.
+4. If an owner later unlinks a manager, that manager keeps read-only access to
+   their own past bookings and commissions on that villa (RLS's
+   `was_villa_manager()`), so historical earnings never disappear — they just
+   stop seeing it as an active assignment.
 
 ## Setup
 
 ### 1. Database
 
-Run `supabase/migrations/0001_init.sql` in the Supabase SQL editor (or
-`supabase db push` with the CLI). It is idempotent — safe to re-run.
+Run the migrations in order in the Supabase SQL editor (or `supabase db
+push` with the CLI) — `0001_init.sql`, then `0002_revoke_anon.sql`, then
+`0003_multi_role_oikoz_id.sql`. Each is idempotent — safe to re-run.
 
-### 2. Edge Function
+### 2. Edge Functions
 
 ```bash
 supabase functions deploy telegram-auth --no-verify-jwt
+supabase functions deploy link-manager --no-verify-jwt
 ```
 
-`--no-verify-jwt` is required: this function is what *issues* the token, so it
-cannot demand one.
+`--no-verify-jwt` is required for `telegram-auth` because it's what *issues*
+the token, so it can't demand one first. `link-manager` also needs it because
+it does its own bearer-token handling (forwarding the caller's JWT to a
+scoped Supabase client) rather than relying on the platform's default JWT
+check.
 
-Set its secrets (Project Settings → Edge Functions → Secrets, or the CLI):
+Set secrets once (Project Settings → Edge Functions → Secrets, or the CLI) —
+both functions share the same project secrets:
 
 ```bash
 supabase secrets set TELEGRAM_BOT_TOKEN=123456:ABC... APP_JWT_SECRET=<legacy JWT secret>
@@ -85,21 +151,41 @@ npm run build
 
 In [@BotFather](https://t.me/botfather): `/newapp` (or Bot Settings → Menu
 Button), point it at your deployed HTTPS URL. Open the bot, tap the menu
-button, and pick a role on first launch.
-
-### 5. Linking managers
-
-A manager signs in once, then reads their Telegram ID off the empty Home
-screen. The owner opens **Villa setup → Managers → Add manager by Telegram ID**.
-That calls the `link_manager_by_telegram_id` RPC, which refuses ids that are
-not registered as managers.
+button — first-time visitors land on Onboarding (name, phone, owner/manager/
+both) and get their oikoz ID on the spot.
 
 ## Working outside Telegram
 
 For browser development, set `VITE_DEV_TELEGRAM_ID=999000001` in `.env` and
 `ALLOW_DEV_LOGIN=true` on the Edge Function. The function then accepts an
-unsigned `devTelegramId` and signs a token for it. **Never enable this in
-production** — it is a complete authentication bypass.
+unsigned `devTelegramId` and signs a token for it (still going through the
+same registration flow on first use). **Never enable this in production** —
+it is a complete authentication bypass.
+
+## Language
+
+Three languages: English, Russian and Uzbek. `public.users.language` is the
+single source of truth, and both surfaces read and write that same column —
+the bot's `/language` command and the globe control in the app's `ProfileHeader`
+(top right of Home). Whichever one a person used last is what both speak; the app
+re-reads the user row whenever the Mini App returns to the foreground, so a
+change made in the bot shows up on next open without a reload.
+
+App copy lives in `src/lib/strings.ts` — a flat `Record<Lang, …>` lookup with
+`{placeholder}` interpolation, deliberately the same shape as the bot's
+`telegram-bot-webhook/copy.ts`, and no i18n runtime. `Record<Lang,
+Record<StringKey, string>>` is what keeps it honest: a key added to English
+fails the build until Russian and Uzbek have it too. Counted text goes through
+`plural()`, which knows that Russian needs three forms (1 ночь / 3 ночи /
+5 ночей) where English needs two and Uzbek needs none. Month and weekday names
+live there too, so `formatRange()` and `monthLabel()` take a `Lang`.
+
+Components read it through `useI18n()`: `t('key', vars)` and `tn(base, count)`.
+
+> **Money is still formatted `en-US`** (`$1,234.00`), in every language. That
+> is deliberate — changing separator and currency-symbol placement per locale
+> would restyle every financial figure in the app, which is a bigger decision
+> than translating the labels around them.
 
 ## Business rules
 
@@ -133,20 +219,31 @@ read-only grid. Tapping a dark day opens that booking.
 
 ## Permissions (enforced in the database, not the UI)
 
-| | Owner | Manager |
-|---|---|---|
-| See a villa | `villas.owner_id = auth.uid()` | listed in `villa_managers` |
-| Edit villa, rates, commission | yes | no |
-| Add/remove managers | yes | no |
-| Create / edit a booking | no | yes, on their villas |
-| Cancel or reopen a booking | yes | yes |
-| Mark commission paid | yes | no |
+| | Owner | Manager (currently assigned) | Manager (unassigned) |
+|---|---|---|---|
+| See a villa | `villas.owner_id = auth.uid()` | listed in `villa_managers` | no |
+| Edit villa, rates, commission | yes | no | no |
+| Add/remove managers | yes | no | no |
+| Create / edit a booking | no | yes, on their villas | no |
+| See their own past bookings/commissions | — | yes | yes (history only) |
+| Cancel or reopen a booking | yes | yes | no |
+| Mark commission paid | yes | no | no |
 
 RLS policies cover row visibility; two `BEFORE UPDATE` triggers cover what RLS
-cannot express — which *columns* each side may touch on `bookings` and `users`.
-Bookings are never deleted, only cancelled.
+cannot express — which *columns* each side may touch on `bookings` and
+`users`. Bookings are never deleted, only cancelled.
+
+**What a person may change about themselves:** `name`, `full_name`, `phone`
+and `language` — nothing else. `users_update_guard()` enforces that list
+(migration `0010`), and it is an *allowlist*: `id`, `telegram_id`, `oikoz_id`,
+`role`, `is_owner`, `is_makler` and `created_at` are all refused, as is any
+column added later until it is named. The guard only applies to the
+`authenticated` role, so the bot webhook and `telegram-auth` — which run as
+`service_role` and legitimately write roles during onboarding and `/role` —
+are unaffected.
 
 ## Not in v1
 
-Photos, payments, multi-owner villas, push notifications, and changing your own
-role after signup (an admin has to do it with the service role).
+Photos, payments, multi-owner villas, push notifications beyond the
+manager-linked DM, and changing your own name/phone/roles after signup (an
+admin has to do it with the service role).

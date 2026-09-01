@@ -1,18 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { fetchCommissionRows, setCommissionStatus, type CommissionRow } from '../lib/api'
+import { fetchCommissionRows, setCommissionStatus, setDepositPaid, type CommissionRow } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { formatRange } from '../lib/dates'
 import { formatMoney } from '../lib/format'
+import { useI18n } from '../lib/i18n'
 import { notify } from '../lib/telegram'
 import { useBackButton } from '../lib/useBackButton'
 import { Empty, ErrorState, Loading, TopBar } from '../components/ui'
 
+type ViewAs = 'owner' | 'makler' | 'deposits'
+
 export default function Commissions() {
   const { user } = useAuth()
+  const { t } = useI18n()
   const [rows, setRows] = useState<CommissionRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [viewAs, setViewAs] = useState<ViewAs>('owner')
 
   useBackButton(null)
 
@@ -47,17 +52,86 @@ export default function Commissions() {
     }
   }, [])
 
+  const markDepositPaid = useCallback(async (row: CommissionRow) => {
+    setBusyId(row.id)
+    setError(null)
+    try {
+      const updated = await setDepositPaid(row.id, !row.deposit_paid)
+      setRows((current) =>
+        current?.map((r) => (r.id === row.id ? { ...r, deposit_paid: updated.deposit_paid } : r)) ?? null,
+      )
+      notify('success')
+    } catch (err) {
+      notify('error')
+      setError((err as Error).message)
+    } finally {
+      setBusyId(null)
+    }
+  }, [])
+
   if (!user) return null
+  const both = user.is_owner && user.is_makler
+  const effectiveView: ViewAs =
+    viewAs === 'deposits' ? 'deposits' : both ? viewAs : user.is_owner ? 'owner' : 'makler'
+
   if (error && !rows) return <ErrorState message={error} onRetry={load} />
   if (!rows) return <Loading />
 
   return (
     <>
-      <TopBar title="Commissions" subtitle={user.role === 'owner' ? 'Owed to your managers' : 'Your earnings'} />
+      <TopBar
+        title={t('commissions.title')}
+        subtitle={
+          effectiveView === 'owner' ? t('commissions.subtitleOwner') : t('commissions.subtitleMakler')
+        }
+      />
       <main className="screen">
+        {both && (
+          <div className="segmented" role="tablist" style={{ marginBottom: 14 }}>
+            <button
+              type="button"
+              className={`segmented-item${effectiveView === 'owner' ? ' segmented-item-active' : ''}`}
+              onClick={() => setViewAs('owner')}
+            >
+              {t('commissions.asOwner')}
+            </button>
+            <button
+              type="button"
+              className={`segmented-item${effectiveView === 'makler' ? ' segmented-item-active' : ''}`}
+              onClick={() => setViewAs('makler')}
+            >
+              {t('commissions.asMakler')}
+            </button>
+          </div>
+        )}
+
+        <div className="segmented" role="tablist" style={{ marginBottom: 14 }}>
+          <button
+            type="button"
+            className={`segmented-item${effectiveView !== 'deposits' ? ' segmented-item-active' : ''}`}
+            onClick={() => setViewAs(user.is_owner ? 'owner' : 'makler')}
+          >
+            {t('commissions.tabCommission')}
+          </button>
+          <button
+            type="button"
+            className={`segmented-item${effectiveView === 'deposits' ? ' segmented-item-active' : ''}`}
+            onClick={() => setViewAs('deposits')}
+          >
+            {t('commissions.tabDeposits')}
+          </button>
+        </div>
+
         {error && <div className="alert alert-error">{error}</div>}
-        {user.role === 'manager' ? (
-          <ManagerView rows={rows.filter((row) => row.manager_id === user.id)} />
+        {effectiveView === 'deposits' ? (
+          <PendingDeposits
+            rows={rows.filter((row) => !row.deposit_paid)}
+            canToggle={user.is_owner}
+            busyId={busyId}
+            onMarkPaid={markDepositPaid}
+          />
+        ) : effectiveView === 'makler' ? (
+          <MaklerView rows={rows.filter((row) => row.manager_id === user.id)} />
         ) : (
           <OwnerView rows={rows} busyId={busyId} onTogglePaid={togglePaid} />
         )}
@@ -66,10 +140,11 @@ export default function Commissions() {
   )
 }
 
-// ---------------------------------------------------------------- manager --
+// ----------------------------------------------------------------- makler --
 
-function ManagerView({ rows }: { rows: CommissionRow[] }) {
+function MaklerView({ rows }: { rows: CommissionRow[] }) {
   const navigate = useNavigate()
+  const { lang, t } = useI18n()
 
   /** Money never crosses currencies — every total is per currency. */
   const totals = useMemo(() => {
@@ -85,7 +160,7 @@ function ManagerView({ rows }: { rows: CommissionRow[] }) {
   }, [rows])
 
   if (rows.length === 0) {
-    return <Empty title="No commissions yet">Bookings you create will show up here with what you earned.</Empty>
+    return <Empty title={t('commissions.maklerEmptyTitle')}>{t('commissions.maklerEmptyBody')}</Empty>
   }
 
   return (
@@ -93,31 +168,31 @@ function ManagerView({ rows }: { rows: CommissionRow[] }) {
       {totals.map(([currency, bucket]) => (
         <div className="stat-strip" key={currency}>
           <div className="stat">
-            <div className="stat-label">Unpaid · {currency}</div>
+            <div className="stat-label">{t('commissions.statUnpaid', { currency })}</div>
             <div className="stat-value">{formatMoney(bucket.unpaid, currency)}</div>
           </div>
           <div className="stat">
-            <div className="stat-label">Paid · {currency}</div>
+            <div className="stat-label">{t('commissions.statPaid', { currency })}</div>
             <div className="stat-value">{formatMoney(bucket.paid, currency)}</div>
           </div>
         </div>
       ))}
 
-      <p className="section-title">Bookings</p>
+      <p className="section-title">{t('commissions.bookings')}</p>
       <div className="list">
         {rows.map((row) => (
           <button type="button" className="row" key={row.id} onClick={() => navigate(`/booking/${row.id}`)}>
             <div className="row-main">
               <div className="row-title">{row.client_name}</div>
               <div className="row-sub">
-                {row.villa?.name} · {formatRange(row.check_in, row.check_out)}
+                {row.villa?.name} · {formatRange(row.check_in, row.check_out, lang)}
               </div>
             </div>
             <div className="row-amount">
               {formatMoney(row.manager_commission, row.villa?.currency ?? 'USD')}
               <div className="row-sub">
                 <span className={`badge ${row.commission_status === 'paid' ? 'badge-success' : 'badge-warning'}`}>
-                  {row.commission_status}
+                  {row.commission_status === 'paid' ? t('common.paid') : t('common.unpaid')}
                 </span>
               </div>
             </div>
@@ -130,12 +205,11 @@ function ManagerView({ rows }: { rows: CommissionRow[] }) {
 
 // ------------------------------------------------------------------ owner --
 
-interface OwnerGroup {
-  managerId: string
-  managerName: string
+interface OwnerTotal {
+  maklerId: string
+  maklerName: string
   currency: string
-  rows: CommissionRow[]
-  unpaid: number
+  owed: number
   paid: number
 }
 
@@ -148,72 +222,202 @@ function OwnerView({
   busyId: string | null
   onTogglePaid: (row: CommissionRow) => void
 }) {
-  /** One group per manager per currency: an owner may owe the same person in both USD and UZS. */
-  const groups = useMemo(() => {
-    const map = new Map<string, OwnerGroup>()
+  const { lang, t } = useI18n()
+  /**
+   * One running total per makler per currency: an owner may owe the same
+   * person in both USD and UZS, and those must never be added together.
+   */
+  const totals = useMemo(() => {
+    const map = new Map<string, OwnerTotal>()
     for (const row of rows) {
       if (!row.manager_id) continue
       const currency = row.villa?.currency ?? 'USD'
       const key = `${row.manager_id}:${currency}`
-      const group = map.get(key) ?? {
-        managerId: row.manager_id,
-        managerName: row.manager?.name ?? 'Manager',
+      const entry = map.get(key) ?? {
+        maklerId: row.manager_id,
+        maklerName: row.manager?.name ?? t('commissions.maklerFallback'),
         currency,
-        rows: [],
-        unpaid: 0,
+        owed: 0,
         paid: 0,
       }
-      group.rows.push(row)
-      if (row.commission_status === 'paid') group.paid += row.manager_commission
-      else group.unpaid += row.manager_commission
-      map.set(key, group)
+      if (row.commission_status === 'paid') entry.paid += row.manager_commission
+      else entry.owed += row.manager_commission
+      map.set(key, entry)
     }
-    return [...map.values()].sort((a, b) => b.unpaid - a.unpaid || a.managerName.localeCompare(b.managerName))
+    return [...map.values()].sort((a, b) => b.owed - a.owed || a.maklerName.localeCompare(b.maklerName))
   }, [rows])
 
-  if (groups.length === 0) {
-    return <Empty title="Nothing owed yet">Once your managers book stays, what you owe them appears here.</Empty>
+  /** The working list: everything still unpaid, soonest stay first. */
+  const open = useMemo(
+    () =>
+      rows
+        .filter((row) => row.commission_status === 'unpaid')
+        .sort((a, b) => a.check_in.localeCompare(b.check_in)),
+    [rows],
+  )
+
+  const settled = useMemo(() => rows.filter((row) => row.commission_status === 'paid'), [rows])
+
+  if (rows.length === 0) {
+    return <Empty title={t('commissions.ownerEmptyTitle')}>{t('commissions.ownerEmptyBody')}</Empty>
   }
 
   return (
     <>
-      {groups.map((group) => (
-        <section key={`${group.managerId}:${group.currency}`}>
-          <div className="group-header">
-            <h3>
-              {group.managerName} <span className="badge">{group.currency}</span>
-            </h3>
-            <span className="group-total">{formatMoney(group.unpaid, group.currency)} owed</span>
+      <p className="section-title">{t('commissions.owedPerMakler')}</p>
+      <div className="list">
+        {totals.map((total) => (
+          <div className="row row-static" key={`${total.maklerId}:${total.currency}`}>
+            <div className="row-main">
+              <div className="row-title">{total.maklerName}</div>
+              <div className="row-sub">
+                {total.paid > 0
+                  ? t('commissions.alreadySettled', {
+                      amount: formatMoney(total.paid, total.currency),
+                    })
+                  : t('commissions.nothingSettled')}
+              </div>
+            </div>
+            <div className="row-amount">
+              {formatMoney(total.owed, total.currency)}
+              <div className="row-sub">{total.currency}</div>
+            </div>
           </div>
+        ))}
+      </div>
+
+      <p className="section-title">{t('commissions.openCommission')}</p>
+      {open.length === 0 ? (
+        <Empty title={t('commissions.allSettledTitle')}>{t('commissions.allSettledBody')}</Empty>
+      ) : (
+        <div className="list">
+          {open.map((row) => (
+            <div className="row row-static" key={row.id}>
+              <div className="row-main">
+                <div className="row-title">{row.manager?.name ?? t('commissions.maklerFallback')}</div>
+                <div className="row-sub">
+                  {row.villa?.name} · {formatRange(row.check_in, row.check_out, lang)}
+                </div>
+                <div className="row-sub">
+                  {formatMoney(row.manager_commission, row.villa?.currency ?? 'USD')}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="toggle"
+                disabled={busyId === row.id}
+                onClick={() => onTogglePaid(row)}
+              >
+                {t('commissions.markPaid')}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {settled.length > 0 && (
+        <>
+          <p className="section-title">{t('commissions.settled')}</p>
           <div className="list">
-            {group.rows.map((row) => (
+            {settled.map((row) => (
               <div className="row row-static" key={row.id}>
                 <div className="row-main">
-                  <div className="row-title">
-                    {formatMoney(row.manager_commission, group.currency)} · {row.villa?.name}
-                  </div>
+                  <div className="row-title">{row.manager?.name ?? t('commissions.maklerFallback')}</div>
                   <div className="row-sub">
-                    {row.client_name} · {formatRange(row.check_in, row.check_out)}
+                    {row.villa?.name} · {formatRange(row.check_in, row.check_out, lang)}
                   </div>
                 </div>
                 <button
                   type="button"
-                  className={`toggle ${row.commission_status === 'paid' ? 'paid' : ''}`}
+                  className="toggle paid"
                   disabled={busyId === row.id}
                   onClick={() => onTogglePaid(row)}
                 >
-                  {row.commission_status === 'paid' ? '✓ Paid' : 'Mark paid'}
+                  ✓ {formatMoney(row.manager_commission, row.villa?.currency ?? 'USD')}
                 </button>
               </div>
             ))}
           </div>
-          {group.paid > 0 && (
-            <p className="field-hint" style={{ padding: '6px 4px 0' }}>
-              {formatMoney(group.paid, group.currency)} already settled.
-            </p>
-          )}
-        </section>
+        </>
+      )}
+    </>
+  )
+}
+
+// -------------------------------------------------------------- deposits --
+
+/**
+ * Deposits the CLIENT still owes. Deliberately separate from commission
+ * settlement above: one is money coming in, the other is money going out.
+ */
+function PendingDeposits({
+  rows,
+  canToggle,
+  busyId,
+  onMarkPaid,
+}: {
+  rows: CommissionRow[]
+  canToggle: boolean
+  busyId: string | null
+  onMarkPaid: (row: CommissionRow) => void
+}) {
+  const { lang, t } = useI18n()
+  const totals = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const row of rows) {
+      const currency = row.villa?.currency ?? 'USD'
+      map.set(currency, (map.get(currency) ?? 0) + row.deposit_amount)
+    }
+    return [...map.entries()]
+  }, [rows])
+
+  if (rows.length === 0) {
+    return <Empty title={t('commissions.noDepositsTitle')}>{t('commissions.noDepositsBody')}</Empty>
+  }
+
+  return (
+    <>
+      {totals.map(([currency, amount]) => (
+        <div className="stat-strip" key={currency}>
+          <div className="stat">
+            <div className="stat-label">{t('commissions.statOutstanding', { currency })}</div>
+            <div className="stat-value">{formatMoney(amount, currency)}</div>
+          </div>
+          <div className="stat">
+            <div className="stat-label">{t('commissions.bookings')}</div>
+            <div className="stat-value">{rows.filter((r) => (r.villa?.currency ?? 'USD') === currency).length}</div>
+          </div>
+        </div>
       ))}
+
+      <p className="section-title">{t('commissions.awaitingDeposit')}</p>
+      <div className="list">
+        {rows.map((row) => (
+          <div className="row row-static" key={row.id}>
+            <div className="row-main">
+              <div className="row-title">{row.client_name}</div>
+              <div className="row-sub">
+                {row.villa?.name} · {formatRange(row.check_in, row.check_out, lang)}
+              </div>
+              <div className="row-sub">
+                {t('commissions.amountDue', {
+                  amount: formatMoney(row.deposit_amount, row.villa?.currency ?? 'USD'),
+                })}
+              </div>
+            </div>
+            {canToggle && (
+              <button
+                type="button"
+                className="toggle"
+                disabled={busyId === row.id}
+                onClick={() => onMarkPaid(row)}
+              >
+                {t('commissions.markReceived')}
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
     </>
   )
 }

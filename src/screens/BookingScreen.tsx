@@ -4,32 +4,49 @@ import {
   createBooking,
   fetchBooking,
   fetchVilla,
+  findMaklerForVilla,
+  isAssignedMakler,
   setBookingStatus,
+  setDepositPaid as saveDepositPaid,
   updateBooking,
 } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { addDays, formatRange, nightCount, parseISODate, startOfToday, toISODate } from '../lib/dates'
 import { formatMoney, formatPercent } from '../lib/format'
+import { useI18n } from '../lib/i18n'
 import { quoteRange, splitTotal } from '../lib/pricing'
+import type { StringKey } from '../lib/strings'
 import { confirmAction, notify } from '../lib/telegram'
 import { useBackButton } from '../lib/useBackButton'
-import type { Booking, Villa } from '../lib/types'
+import { CLIENT_TYPES, type Booking, type ClientType, type PricingMode, type Villa } from '../lib/types'
 import { Alert, ErrorState, Loading, TopBar } from '../components/ui'
 
-/** Turns Postgres constraint noise into something a manager can act on. */
-function humanizeError(message: string): string {
-  if (message.includes('bookings_no_overlap')) return 'Those dates overlap another booking for this villa.'
-  if (message.includes('bookings_dates_ordered')) return 'Check-out must be after check-in.'
-  if (message.includes('Owners may only cancel')) return 'Owners can only cancel a booking, not edit it.'
-  if (message.includes('Only the villa owner')) return 'Only the villa owner can settle commissions.'
-  return message
-}
+const MIN_DEPOSIT = 200000
+
+/**
+ * Postgres raises its constraint messages in English only. Match them once and
+ * hand back a translation key; anything unrecognised falls through as the raw
+ * database text, which is still better than swallowing it.
+ */
+const DB_ERROR_KEYS: [needle: string, key: StringKey][] = [
+  ['Deposit must be at least', 'error.depositTooLow'],
+  ['Total price must be at least', 'error.totalBelowOwnerNet'],
+  ['net amount for this booking', 'error.ownerNetRequired'],
+  ['not registered as a Makler', 'error.notAMakler'],
+  ['belongs to a makler', 'error.belongsToMakler'],
+  ['bookings_no_overlap', 'error.datesOverlap'],
+  ['bookings_dates_ordered', 'error.checkOutAfterCheckIn'],
+  ['Owners may only cancel', 'error.ownersMayOnlyCancel'],
+  ['Only the villa owner', 'error.ownerSettlesCommission'],
+]
 
 export default function BookingScreen() {
   const { bookingId, villaId: villaIdParam } = useParams<{ bookingId?: string; villaId?: string }>()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { lang, t, tn } = useI18n()
+  const userId = user?.id
   const isNew = !bookingId
 
   const [villa, setVilla] = useState<Villa | null>(null)
@@ -45,9 +62,30 @@ export default function BookingScreen() {
   const [checkIn, setCheckIn] = useState('')
   const [checkOut, setCheckOut] = useState('')
   const [total, setTotal] = useState('')
+  const [deposit, setDeposit] = useState('')
+  const [pricingMode, setPricingMode] = useState<PricingMode>('percentage')
+  const [ownerNet, setOwnerNet] = useState('')
+  /** Same idea as totalEdited: stop pre-filling once it is typed by hand. */
+  const [ownerNetEdited, setOwnerNetEdited] = useState(false)
+  const [clientType, setClientType] = useState<ClientType | ''>('')
+  const [depositPaid, setDepositPaid] = useState(false)
+
+  // Owner-logged bookings only: the makler being credited, if any.
+  const [assignedMakler, setAssignedMakler] = useState(false)
+  const [creditInput, setCreditInput] = useState('')
+  const [creditedMakler, setCreditedMakler] = useState<{ id: string; oikoz_id: string; name: string } | null>(null)
+  const [creditBusy, setCreditBusy] = useState(false)
   const [notes, setNotes] = useState('')
-  /** Once the manager types a total by hand we stop overwriting it. */
+  /** Once the makler types a total by hand we stop overwriting it. */
   const [totalEdited, setTotalEdited] = useState(false)
+
+  const humanizeError = useCallback(
+    (message: string): string => {
+      const match = DB_ERROR_KEYS.find(([needle]) => message.includes(needle))
+      return match ? t(match[1], { min: MIN_DEPOSIT.toLocaleString('en-US') }) : message
+    },
+    [t],
+  )
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -59,6 +97,8 @@ export default function BookingScreen() {
         const startISO = searchParams.get('date') ?? toISODate(startOfToday())
         setCheckIn(startISO)
         setCheckOut(toISODate(addDays(parseISODate(startISO), 1)))
+        setDeposit(String(villaRow.deposit_amount))
+        if (userId) setAssignedMakler(await isAssignedMakler(villaRow.id, userId))
       } else {
         const bookingRow = await fetchBooking(bookingId!)
         const villaRow = await fetchVilla(bookingRow.villa_id)
@@ -69,6 +109,13 @@ export default function BookingScreen() {
         setCheckIn(bookingRow.check_in)
         setCheckOut(bookingRow.check_out)
         setTotal(String(bookingRow.total_price))
+        setDeposit(String(bookingRow.deposit_amount))
+        setPricingMode(bookingRow.pricing_mode)
+        setClientType(bookingRow.client_type ?? '')
+        setDepositPaid(bookingRow.deposit_paid)
+        if (userId) setAssignedMakler(await isAssignedMakler(villaRow.id, userId))
+        setOwnerNet(bookingRow.owner_net_amount === null ? '' : String(bookingRow.owner_net_amount))
+        setOwnerNetEdited(true)
         setNotes(bookingRow.notes ?? '')
         setTotalEdited(true) // an existing total is authoritative
       }
@@ -77,7 +124,7 @@ export default function BookingScreen() {
     } finally {
       setLoading(false)
     }
-  }, [bookingId, isNew, searchParams, villaIdParam])
+  }, [bookingId, isNew, searchParams, villaIdParam, userId])
 
   useEffect(() => {
     void load()
@@ -100,22 +147,72 @@ export default function BookingScreen() {
     setTotal(quote.nights > 0 ? String(quote.suggestedTotal) : '')
   }, [quote.nights, quote.suggestedTotal, totalEdited, villa])
 
+  // The owner's net starts from the same rate card -- it is what the villa
+  // would have earned at list price -- and the makler adjusts from there.
+  useEffect(() => {
+    if (ownerNetEdited || !villa || pricingMode !== 'owner_net') return
+    setOwnerNet(quote.nights > 0 ? String(quote.suggestedTotal) : '')
+  }, [quote.nights, quote.suggestedTotal, ownerNetEdited, villa, pricingMode])
+
   const isOwner = Boolean(villa && user && villa.owner_id === user.id)
+  /** An owner filing it themselves, rather than a makler with a standing link. */
+  const filingAsOwner = isOwner && !assignedMakler
+  /**
+   * Whether a makler is actually attached to THIS booking. A makler filing for
+   * themselves always is; an owner only once they have confirmed a reference.
+   * For a saved booking the row itself is the answer -- reading the form state
+   * there would wrongly zero out a makler's commission whenever an owner
+   * opened their booking.
+   */
+  const maklerCredited = isNew
+    ? filingAsOwner
+      ? Boolean(creditedMakler)
+      : true
+    : Boolean(booking?.manager_id)
+  const noMaklerCredited = !maklerCredited
   const isCancelled = booking?.status === 'cancelled'
-  const readOnly = isOwner || isCancelled
+  const ownsThisBooking = filingAsOwner && (isNew || booking?.manager_id === null)
+  const readOnly = (isOwner && !ownsThisBooking) || isCancelled
 
   // Existing bookings keep the rate they were created with.
-  const commissionRate = booking?.commission_rate_snapshot ?? villa?.commission_rate ?? 0
+  const villaRate = booking?.commission_rate_snapshot ?? villa?.commission_rate ?? 0
+  /**
+   * No makler, no commission. The villa's rate is only a default for a makler
+   * who gets attached later -- it must not colour the preview before then,
+   * which is exactly what bookings_compute() does server-side.
+   */
+  const commissionRate = maklerCredited ? villaRate : 0
   const split = useMemo(
-    () => splitTotal(Number(total) || 0, commissionRate, villa?.platform_fee_rate ?? 0),
-    [total, commissionRate, villa],
+    () =>
+      splitTotal(
+        Number(total) || 0,
+        commissionRate,
+        villa?.platform_fee_rate ?? 0,
+        maklerCredited ? pricingMode : 'percentage',
+        Number(ownerNet) || 0,
+      ),
+    [total, commissionRate, villa, pricingMode, ownerNet, maklerCredited],
   )
 
   async function save() {
     if (!villa || !user) return
-    if (!clientName.trim()) return setError('Enter the client’s name.')
-    if (!checkIn || !checkOut) return setError('Pick both dates.')
-    if (checkOut <= checkIn) return setError('Check-out must be after check-in.')
+    if (!clientName.trim()) return setError(t('error.clientNameRequired'))
+    if (!checkIn || !checkOut) return setError(t('error.datesRequired'))
+    if (checkOut <= checkIn) return setError(t('error.checkOutAfterCheckIn'))
+    const depositValue = Number(deposit)
+    if (!Number.isFinite(depositValue) || depositValue < MIN_DEPOSIT) {
+      return setError(t('error.depositTooLow', { min: MIN_DEPOSIT.toLocaleString('en-US') }))
+    }
+
+    const ownerNetValue = pricingMode === 'owner_net' && !noMaklerCredited ? Number(ownerNet) : null
+    if (pricingMode === 'owner_net' && !noMaklerCredited) {
+      if (!Number.isFinite(ownerNetValue) || ownerNetValue === null) {
+        return setError(t('error.ownerNetRequired'))
+      }
+      if (split.managerCommission < 0) {
+        return setError(t('error.totalBelowOwnerNet'))
+      }
+    }
 
     setSaving(true)
     setError(null)
@@ -126,12 +223,25 @@ export default function BookingScreen() {
         check_in: checkIn,
         check_out: checkOut,
         total_price: Number(total) || 0,
+        deposit_amount: depositValue,
+        pricing_mode: pricingMode,
+        owner_net_amount: ownerNetValue,
+        client_type: clientType || null,
+        deposit_paid: depositPaid,
         notes: notes.trim() || null,
       }
+      // A makler always credits themselves; an owner credits whoever they
+      // named, or nobody at all.
+      const managerId = filingAsOwner ? (creditedMakler?.id ?? null) : user.id
       if (isNew) {
-        await createBooking({ ...payload, villa_id: villa.id, manager_id: user.id })
+        await createBooking({ ...payload, villa_id: villa.id, manager_id: managerId })
       } else {
-        await updateBooking(booking!.id, payload)
+        await updateBooking(booking!.id, {
+          ...payload,
+          // An owner may credit someone after the fact on a booking that had
+          // nobody; an existing credit is left alone.
+          manager_id: filingAsOwner ? (creditedMakler?.id ?? booking!.manager_id) : booking!.manager_id,
+        })
       }
       notify('success')
       navigate(`/villa/${villa.id}`)
@@ -146,10 +256,7 @@ export default function BookingScreen() {
   async function toggleCancelled() {
     if (!booking) return
     const next = booking.status === 'confirmed' ? 'cancelled' : 'confirmed'
-    const question =
-      next === 'cancelled'
-        ? 'Cancel this booking? Its days go back to available.'
-        : 'Reopen this booking and block those days again?'
+    const question = next === 'cancelled' ? t('booking.cancelConfirm') : t('booking.reopenConfirm')
     if (!(await confirmAction(question))) return
     try {
       const updated = await setBookingStatus(booking.id, next)
@@ -171,30 +278,28 @@ export default function BookingScreen() {
   return (
     <>
       <TopBar
-        title={isNew ? 'New booking' : booking?.client_name || 'Booking'}
+        title={isNew ? t('booking.titleNew') : booking?.client_name || t('booking.title')}
         subtitle={villa.name}
         onBack={goBack}
       />
       <main className="screen">
         {error && <Alert>{error}</Alert>}
-        {isCancelled && <Alert kind="info">This booking is cancelled. Its days are available again.</Alert>}
-        {isOwner && !isNew && !isCancelled && (
-          <Alert kind="info">You can view and cancel this booking. Only managers can edit the details.</Alert>
-        )}
+        {isCancelled && <Alert kind="info">{t('booking.cancelledNotice')}</Alert>}
+        {isOwner && !isNew && !isCancelled && <Alert kind="info">{t('booking.ownerReadOnly')}</Alert>}
 
         <div className="card card-pad">
           <div className="field">
-            <label htmlFor="client">Client name</label>
+            <label htmlFor="client">{t('booking.clientNameLabel')}</label>
             <input
               id="client"
               value={clientName}
               disabled={readOnly}
               onChange={(e) => setClientName(e.target.value)}
-              placeholder="Full name"
+              placeholder={t('booking.clientNamePlaceholder')}
             />
           </div>
           <div className="field">
-            <label htmlFor="phone">Phone</label>
+            <label htmlFor="phone">{t('booking.phoneLabel')}</label>
             <input
               id="phone"
               type="tel"
@@ -202,12 +307,12 @@ export default function BookingScreen() {
               value={clientPhone}
               disabled={readOnly}
               onChange={(e) => setClientPhone(e.target.value)}
-              placeholder="+998 90 000 00 00"
+              placeholder={t('booking.phonePlaceholder')}
             />
           </div>
           <div className="field-row">
             <div className="field">
-              <label htmlFor="check-in">Check-in</label>
+              <label htmlFor="check-in">{t('booking.checkIn')}</label>
               <input
                 id="check-in"
                 type="date"
@@ -221,7 +326,7 @@ export default function BookingScreen() {
               />
             </div>
             <div className="field">
-              <label htmlFor="check-out">Check-out</label>
+              <label htmlFor="check-out">{t('booking.checkOut')}</label>
               <input
                 id="check-out"
                 type="date"
@@ -232,18 +337,122 @@ export default function BookingScreen() {
               />
             </div>
           </div>
-          {nights > 0 && <p className="field-hint">{formatRange(checkIn, checkOut)}</p>}
+          {nights > 0 && <p className="field-hint">{formatRange(checkIn, checkOut, lang)}</p>}
+
+          <div className="field" style={{ marginTop: 14, marginBottom: 0 }}>
+            <label htmlFor="client-type">{t('booking.clientTypeLabel')}</label>
+            <select
+              id="client-type"
+              value={clientType}
+              disabled={readOnly}
+              onChange={(e) => setClientType(e.target.value as ClientType | '')}
+            >
+              <option value="">{t('booking.clientTypeNone')}</option>
+              {CLIENT_TYPES.map((key) => (
+                <option key={key} value={key}>
+                  {t(`clientType.${key}`)}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        <p className="section-title">Price</p>
+        {filingAsOwner && (
+          <>
+            <p className="section-title">{t('booking.commissionTitle')}</p>
+            <div className="card card-pad">
+              {creditedMakler ? (
+                <div className="row row-static" style={{ padding: 0 }}>
+                  <div className="row-main">
+                    <div className="row-title">{creditedMakler.name}</div>
+                    <div className="row-sub">{t('booking.creditedFor', { reference: creditedMakler.oikoz_id })}</div>
+                  </div>
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      className="button button-danger button-small"
+                      onClick={() => {
+                        setCreditedMakler(null)
+                        setCreditInput('')
+                      }}
+                    >
+                      {t('common.remove')}
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="field" style={{ marginBottom: 10 }}>
+                    <label htmlFor="credit-makler">{t('booking.creditLabel')}</label>
+                    <input
+                      id="credit-makler"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      value={creditInput}
+                      disabled={readOnly}
+                      onChange={(e) => setCreditInput(e.target.value)}
+                      placeholder="oikoz_id0001"
+                    />
+                  </div>
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      disabled={creditBusy || !creditInput.trim()}
+                      onClick={async () => {
+                        setCreditBusy(true)
+                        setError(null)
+                        try {
+                          setCreditedMakler(await findMaklerForVilla(villa.id, creditInput.trim()))
+                        } catch (err) {
+                          setError(humanizeError((err as Error).message))
+                        } finally {
+                          setCreditBusy(false)
+                        }
+                      }}
+                    >
+                      {creditBusy ? t('booking.creditChecking') : t('booking.creditSubmit')}
+                    </button>
+                  )}
+                  <p className="field-hint">{t('booking.creditHint')}</p>
+                </>
+              )}
+            </div>
+          </>
+        )}
+
+        <p className="section-title">{t('booking.priceTitle')}</p>
+
+        {!readOnly && !noMaklerCredited && (
+          <div className="segmented" role="tablist" style={{ marginBottom: 12 }}>
+            <button
+              type="button"
+              className={`segmented-item${pricingMode === 'percentage' ? ' segmented-item-active' : ''}`}
+              onClick={() => setPricingMode('percentage')}
+            >
+              {t('booking.modePercentage')}
+            </button>
+            <button
+              type="button"
+              className={`segmented-item${pricingMode === 'owner_net' ? ' segmented-item-active' : ''}`}
+              onClick={() => setPricingMode('owner_net')}
+            >
+              {t('booking.modeOwnerNet')}
+            </button>
+          </div>
+        )}
+
         <div className="card card-pad">
           {quote.nights > 0 && (
             <dl className="summary" style={{ marginBottom: 10 }}>
               {quote.weekdayNights > 0 && (
                 <div className="summary-row muted">
                   <dt>
-                    {quote.weekdayNights} weekday night{quote.weekdayNights === 1 ? '' : 's'} ×{' '}
-                    {formatMoney(villa.weekday_price, villa.currency)}
+                    {t('booking.nightsSubtotal', {
+                      nights: tn('weekdayNights', quote.weekdayNights),
+                      rate: formatMoney(villa.weekday_price, villa.currency),
+                    })}
                   </dt>
                   <dd>{formatMoney(quote.weekdayNights * villa.weekday_price, villa.currency)}</dd>
                 </div>
@@ -251,8 +460,10 @@ export default function BookingScreen() {
               {quote.weekendNights > 0 && (
                 <div className="summary-row muted">
                   <dt>
-                    {quote.weekendNights} weekend night{quote.weekendNights === 1 ? '' : 's'} ×{' '}
-                    {formatMoney(villa.weekend_price, villa.currency)}
+                    {t('booking.nightsSubtotal', {
+                      nights: tn('weekendNights', quote.weekendNights),
+                      rate: formatMoney(villa.weekend_price, villa.currency),
+                    })}
                   </dt>
                   <dd>{formatMoney(quote.weekendNights * villa.weekend_price, villa.currency)}</dd>
                 </div>
@@ -260,8 +471,34 @@ export default function BookingScreen() {
             </dl>
           )}
 
+          {pricingMode === 'owner_net' && !noMaklerCredited && (
+            <div className="field">
+              <label htmlFor="owner-net">{t('booking.ownerNetLabel', { currency: villa.currency })}</label>
+              <input
+                id="owner-net"
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="1000"
+                value={ownerNet}
+                disabled={readOnly}
+                onChange={(e) => {
+                  setOwnerNetEdited(true)
+                  setOwnerNet(e.target.value)
+                }}
+              />
+              {!readOnly && (
+                <p className="field-hint">{t('booking.ownerNetHint')}</p>
+              )}
+            </div>
+          )}
+
           <div className="field" style={{ marginBottom: 6 }}>
-            <label htmlFor="total">Total price ({villa.currency})</label>
+            <label htmlFor="total">
+              {pricingMode === 'owner_net'
+                ? t('booking.chargedLabel', { currency: villa.currency })
+                : t('booking.totalLabel', { currency: villa.currency })}
+            </label>
             <input
               id="total"
               type="number"
@@ -276,7 +513,7 @@ export default function BookingScreen() {
               }}
             />
           </div>
-          {showResetTotal && (
+          {showResetTotal && pricingMode === 'percentage' && (
             <button
               type="button"
               className="button button-secondary button-small"
@@ -285,41 +522,120 @@ export default function BookingScreen() {
                 setTotal(String(quote.suggestedTotal))
               }}
             >
-              Reset to {formatMoney(quote.suggestedTotal, villa.currency)}
+              {t('booking.resetTo', { amount: formatMoney(quote.suggestedTotal, villa.currency) })}
             </button>
           )}
-          {!readOnly && <p className="field-hint">Pre-filled from the villa’s rates — adjust it for discounts or extras.</p>}
+          {!readOnly && (
+            <p className="field-hint">
+              {pricingMode === 'owner_net' ? t('booking.chargedHint') : t('booking.totalHint')}
+            </p>
+          )}
+
+          {pricingMode === 'owner_net' && !noMaklerCredited && (
+            <div
+              className={`alert ${split.managerCommission < 0 ? 'alert-error' : 'alert-info'}`}
+              style={{ marginTop: 14, marginBottom: 0 }}
+            >
+              {split.managerCommission < 0
+                ? t('error.totalBelowOwnerNet')
+                : t('booking.yourCommission', {
+                    amount: formatMoney(split.managerCommission, villa.currency),
+                  })}
+              {villa.platform_fee_rate > 0 && split.managerCommission >= 0 && (
+                <>
+                  {' '}
+                  {t('booking.afterPlatformFee', { amount: formatMoney(split.platformFee, villa.currency) })}
+                </>
+              )}
+            </div>
+          )}
+
+          <div className="field" style={{ marginTop: 14, marginBottom: 0 }}>
+            <label htmlFor="deposit">{t('booking.depositLabel', { currency: villa.currency })}</label>
+            <input
+              id="deposit"
+              type="number"
+              inputMode="decimal"
+              min={MIN_DEPOSIT}
+              step="1000"
+              value={deposit}
+              disabled={readOnly}
+              onChange={(e) => setDeposit(e.target.value)}
+            />
+            {!readOnly && (
+              <p className="field-hint">
+                {t('booking.depositHint', { min: MIN_DEPOSIT.toLocaleString('en-US') })}
+              </p>
+            )}
+
+            <div className="toggle-row">
+              <span>{t('booking.depositPaidQuestion')}</span>
+              <button
+                type="button"
+                className={`toggle ${depositPaid ? 'paid' : ''}`}
+                disabled={readOnly && !isOwner}
+                onClick={async () => {
+                  const next = !depositPaid
+                  setDepositPaid(next)
+                  // On an existing booking the owner can flip this on its own,
+                  // without saving the whole form.
+                  if (!isNew && booking) {
+                    try {
+                      await saveDepositPaid(booking.id, next)
+                    } catch (err) {
+                      setDepositPaid(!next)
+                      setError(humanizeError((err as Error).message))
+                    }
+                  }
+                }}
+              >
+                {depositPaid ? t('booking.depositPaidYes') : t('booking.depositPaidNo')}
+              </button>
+            </div>
+          </div>
         </div>
 
-        <p className="section-title">Split</p>
+        <p className="section-title">{t('booking.splitTitle')}</p>
         <div className="card card-pad">
           <dl className="summary">
             <div className="summary-row total">
-              <dt>Total</dt>
+              <dt>{t('booking.splitTotal')}</dt>
               <dd>{formatMoney(Number(total) || 0, villa.currency)}</dd>
             </div>
             {(villa.platform_fee_rate > 0 || split.platformFee > 0) && (
               <div className="summary-row">
-                <dt>Platform fee ({formatPercent(villa.platform_fee_rate)})</dt>
+                <dt>{t('booking.splitPlatformFee', { rate: formatPercent(villa.platform_fee_rate) })}</dt>
                 <dd>−{formatMoney(split.platformFee, villa.currency)}</dd>
               </div>
             )}
             <div className="summary-row">
-              <dt>Manager commission ({formatPercent(commissionRate)})</dt>
+              <dt>
+                {!maklerCredited
+                  ? t('booking.splitNoMakler')
+                  : pricingMode === 'owner_net'
+                    ? t('booking.splitSpread')
+                    : t('booking.splitCommission', { rate: formatPercent(commissionRate) })}
+              </dt>
               <dd>{formatMoney(split.managerCommission, villa.currency)}</dd>
             </div>
             <div className="summary-row total">
-              <dt>Owner payout</dt>
+              <dt>{t('booking.splitOwnerPayout')}</dt>
               <dd>{formatMoney(split.ownerPayout, villa.currency)}</dd>
+            </div>
+            <div className="summary-row muted">
+              <dt>{t('booking.splitDeposit')}</dt>
+              <dd>{formatMoney(Number(deposit) || 0, villa.currency)}</dd>
             </div>
           </dl>
           {booking && (
             <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
               <span className={`badge ${booking.status === 'confirmed' ? 'badge-accent' : 'badge-danger'}`}>
-                {booking.status === 'confirmed' ? 'Confirmed' : 'Cancelled'}
+                {booking.status === 'confirmed' ? t('booking.statusConfirmed') : t('booking.statusCancelled')}
               </span>
               <span className={`badge ${booking.commission_status === 'paid' ? 'badge-success' : 'badge-warning'}`}>
-                Commission {booking.commission_status}
+                {t('booking.commissionBadge', {
+                  status: booking.commission_status === 'paid' ? t('common.paid') : t('common.unpaid'),
+                })}
               </span>
             </div>
           )}
@@ -327,13 +643,18 @@ export default function BookingScreen() {
 
         {!readOnly && (
           <div className="field" style={{ marginTop: 16 }}>
-            <label htmlFor="notes">Notes</label>
-            <textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Arrival time, extras, deposit…" />
+            <label htmlFor="notes">{t('booking.notesLabel')}</label>
+            <textarea
+              id="notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder={t('booking.notesPlaceholder')}
+            />
           </div>
         )}
         {readOnly && notes && (
           <>
-            <p className="section-title">Notes</p>
+            <p className="section-title">{t('booking.notesLabel')}</p>
             <div className="card card-pad" style={{ whiteSpace: 'pre-wrap' }}>{notes}</div>
           </>
         )}
@@ -341,7 +662,7 @@ export default function BookingScreen() {
         {!readOnly && (
           <div className="button-row">
             <button type="button" className="button" disabled={saving} onClick={() => void save()}>
-              {saving ? 'Saving…' : isNew ? 'Create booking' : 'Save changes'}
+              {saving ? t('common.saving') : isNew ? t('booking.create') : t('common.saveChanges')}
             </button>
           </div>
         )}
@@ -353,7 +674,7 @@ export default function BookingScreen() {
               className={booking?.status === 'confirmed' ? 'button button-danger' : 'button button-secondary'}
               onClick={() => void toggleCancelled()}
             >
-              {booking?.status === 'confirmed' ? 'Cancel booking' : 'Reopen booking'}
+              {booking?.status === 'confirmed' ? t('booking.cancel') : t('booking.reopen')}
             </button>
           </div>
         )}

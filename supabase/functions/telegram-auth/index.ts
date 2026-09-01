@@ -2,8 +2,10 @@
 // telegram-auth — turns Telegram initData into a Supabase-compatible JWT.
 //
 //   1. Verify the initData HMAC with the bot token (proves Telegram signed it).
-//   2. Look up public.users by telegram_id, creating the row on first login
-//      with the role the client picked ('owner' | 'manager').
+//   2. Look up public.users by telegram_id. On first login, register the
+//      person: full name, phone, and role(s) -- owner, manager, or both --
+//      then mint them an oikoz_id, the short code they hand other people to
+//      link up (their Telegram id itself is never exposed to anyone else).
 //   3. Mint an HS256 JWT signed with the project's JWT secret, with
 //      sub = users.id and role = authenticated, so RLS sees auth.uid().
 //
@@ -78,13 +80,15 @@ type TelegramUser = {
  * Verifies initData per Telegram's spec:
  *   secret = HMAC_SHA256(key: "WebAppData", data: bot_token)
  *   hash   = HMAC_SHA256(key: secret,       data: sorted "k=v" lines)
+ *
+ * As of Bot API 8.0 (Nov 2024), 'signature' (the Ed25519 field) is part of
+ * that sorted field list -- only 'hash' itself is excluded.
  */
 async function verifyInitData(initData: string, botToken: string): Promise<TelegramUser> {
   const params = new URLSearchParams(initData)
   const hash = params.get('hash')
   if (!hash) throw new Error('initData is missing its hash')
   params.delete('hash')
-  params.delete('signature') // Telegram's Ed25519 field, not part of the HMAC
 
   const dataCheckString = [...params.entries()]
     .map(([k, v]) => `${k}=${v}`)
@@ -144,7 +148,7 @@ Deno.serve(async (req) => {
     return json({ error: `Edge Function is missing ${missing.join(', ')}` }, 500)
   }
 
-  let body: { initData?: string; role?: string; devTelegramId?: number; name?: string }
+  let body: { initData?: string; devTelegramId?: number }
   try {
     body = await req.json()
   } catch {
@@ -168,8 +172,12 @@ Deno.serve(async (req) => {
 
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } })
 
-  // ---- find or create the app user -------------------------------------
-  const { data: existing, error: lookupError } = await admin
+  // ---- look up the app user --------------------------------------------
+  // Purely a lookup. Registration (language, phone, name, owner/makler) happens
+  // in the telegram-bot-webhook conversation before the Mini App is opened, so
+  // there is nothing to create here -- an unknown Telegram id is sent back to
+  // the bot instead.
+  const { data: user, error: lookupError } = await admin
     .from('users')
     .select('*')
     .eq('telegram_id', tgUser.id)
@@ -177,34 +185,10 @@ Deno.serve(async (req) => {
 
   if (lookupError) return json({ error: lookupError.message }, 500)
 
-  const telegramName = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ').trim() ||
-    tgUser.username || `User ${tgUser.id}`
-
-  let user = existing
   if (!user) {
-    // First login: the client must tell us which role this person signed up as.
-    if (body.role !== 'owner' && body.role !== 'manager') {
-      return json({ needsRole: true, telegram: { id: tgUser.id, name: telegramName } }, 200)
-    }
-    const { data: created, error: insertError } = await admin
-      .from('users')
-      .insert({
-        telegram_id: tgUser.id,
-        name: body.name?.trim() || telegramName,
-        role: body.role,
-      })
-      .select('*')
-      .single()
-    if (insertError) return json({ error: insertError.message }, 500)
-    user = created
-  } else if (!user.name) {
-    const { data: updated } = await admin
-      .from('users')
-      .update({ name: telegramName })
-      .eq('id', user.id)
-      .select('*')
-      .single()
-    if (updated) user = updated
+    const telegramName = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ').trim() ||
+      tgUser.username || `User ${tgUser.id}`
+    return json({ needsRegistration: true, telegram: { id: tgUser.id, name: telegramName } }, 200)
   }
 
   const { token, expiresAt } = await mintJwt(user.id, tgUser.id, jwtSecret!)
