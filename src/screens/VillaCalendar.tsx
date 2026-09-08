@@ -15,7 +15,7 @@ import {
   startOfToday,
   toISODate,
 } from '../lib/dates'
-import { formatMoney } from '../lib/format'
+import { bookingTitle, formatMoney } from '../lib/format'
 import { useI18n } from '../lib/i18n'
 import { MONTHS, WEEKDAYS_LONG } from '../lib/strings'
 import { confirmAction, notify } from '../lib/telegram'
@@ -158,6 +158,14 @@ export default function VillaCalendar() {
             setOwnerAction(null)
             setSelectedISO(toISODate(date))
           }}
+          onSelectPastDay={(date) => {
+            // Blocking a day that is already over means nothing, so a past day
+            // skips the block-vs-log choice and goes straight to the form.
+            setSelectedISO(null)
+            setSelectedBlock(null)
+            setOwnerAction(null)
+            navigate(`/villa/${villa.id}/booking/new?date=${toISODate(date)}`)
+          }}
           selectedISO={selectedISO}
           onSelectBooking={(booking) => navigate(`/booking/${booking.id}`)}
           onSelectBlock={(block) => {
@@ -286,7 +294,7 @@ export default function VillaCalendar() {
               <button type="button" className="row" key={booking.id} onClick={() => navigate(`/booking/${booking.id}`)}>
                 <div className="row-main">
                   <div className="row-title">
-                    {booking.client_name}
+                    {bookingTitle(booking.client_name, t('booking.untitled'))}
                     {!booking.deposit_paid && (
                       <span className="badge badge-pending"> {t('villa.depositPending')}</span>
                     )}

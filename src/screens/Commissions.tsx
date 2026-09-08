@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { fetchCommissionRows, setCommissionStatus, setDepositPaid, type CommissionRow } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { formatRange } from '../lib/dates'
-import { formatMoney } from '../lib/format'
+import { bookingTitle, formatMoney } from '../lib/format'
 import { useI18n } from '../lib/i18n'
 import { notify } from '../lib/telegram'
 import { useBackButton } from '../lib/useBackButton'
@@ -183,7 +183,7 @@ function MaklerView({ rows }: { rows: CommissionRow[] }) {
         {rows.map((row) => (
           <button type="button" className="row" key={row.id} onClick={() => navigate(`/booking/${row.id}`)}>
             <div className="row-main">
-              <div className="row-title">{row.client_name}</div>
+              <div className="row-title">{bookingTitle(row.client_name, t('booking.untitled'))}</div>
               <div className="row-sub">
                 {row.villa?.name} · {formatRange(row.check_in, row.check_out, lang)}
               </div>
@@ -395,7 +395,7 @@ function PendingDeposits({
         {rows.map((row) => (
           <div className="row row-static" key={row.id}>
             <div className="row-main">
-              <div className="row-title">{row.client_name}</div>
+              <div className="row-title">{bookingTitle(row.client_name, t('booking.untitled'))}</div>
               <div className="row-sub">
                 {row.villa?.name} · {formatRange(row.check_in, row.check_out, lang)}
               </div>

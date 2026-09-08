@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
+  countVillaBookings,
   createVilla,
   deleteVilla,
   fetchVilla,
   fetchVillaMaklers,
   linkMakler,
+  setVillaArchived,
   unlinkMakler,
   updateVilla,
   type VillaInput,
@@ -64,12 +66,16 @@ export default function VillaSetup() {
   const { villaId } = useParams<{ villaId: string }>()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { t } = useI18n()
+  const { t, tn } = useI18n()
   const isNew = !villaId
 
   const [form, setForm] = useState<FormState>(BLANK)
   const [managers, setManagers] = useState<User[]>([])
   const [villaCode, setVillaCode] = useState<string | null>(null)
+  /** Decides whether removal means delete or archive. */
+  const [bookingCount, setBookingCount] = useState(0)
+  const [archivedAt, setArchivedAt] = useState<string | null>(null)
+  const [removing, setRemoving] = useState(false)
   const [maklerInput, setMaklerInput] = useState('')
   const [loading, setLoading] = useState(!isNew)
   const [saving, setSaving] = useState(false)
@@ -84,7 +90,11 @@ export default function VillaSetup() {
     setLoading(true)
     setLoadError(null)
     try {
-      const [villa, roster] = await Promise.all([fetchVilla(villaId), fetchVillaMaklers(villaId)])
+      const [villa, roster, bookings] = await Promise.all([
+        fetchVilla(villaId),
+        fetchVillaMaklers(villaId),
+        countVillaBookings(villaId),
+      ])
       setForm({
         name: villa.name,
         location: villa.location ?? '',
@@ -98,6 +108,8 @@ export default function VillaSetup() {
       })
       setVillaCode(villa.villa_code)
       setManagers(roster)
+      setBookingCount(bookings)
+      setArchivedAt(villa.archived_at)
     } catch (err) {
       setLoadError((err as Error).message)
     } finally {
@@ -178,13 +190,41 @@ export default function VillaSetup() {
     }
   }
 
+  /**
+   * A villa with no bookings can go for good. One with history is archived
+   * instead -- deleting it would cascade its bookings away, taking the
+   * revenue they are counted in with them.
+   */
   async function removeVilla() {
-    if (!(await confirmAction(t('setup.deleteVillaConfirm')))) return
+    const hasHistory = bookingCount > 0
+    if (!(await confirmAction(hasHistory ? t('setup.archiveConfirm') : t('setup.deleteVillaConfirm')))) return
+    setRemoving(true)
+    setError(null)
     try {
-      await deleteVilla(villaId!)
+      if (hasHistory) await setVillaArchived(villaId!, true)
+      else await deleteVilla(villaId!)
+      notify('success')
       navigate('/', { replace: true })
     } catch (err) {
+      notify('error')
       setError((err as Error).message)
+    } finally {
+      setRemoving(false)
+    }
+  }
+
+  async function restoreVilla() {
+    setRemoving(true)
+    setError(null)
+    try {
+      await setVillaArchived(villaId!, false)
+      setArchivedAt(null)
+      notify('success')
+    } catch (err) {
+      notify('error')
+      setError((err as Error).message)
+    } finally {
+      setRemoving(false)
     }
   }
 
@@ -372,11 +412,40 @@ export default function VillaSetup() {
         </div>
 
         {!isNew && (
-          <div className="button-row">
-            <button type="button" className="button button-danger" onClick={() => void removeVilla()}>
-              {t('setup.deleteVilla')}
-            </button>
-          </div>
+          <>
+            <p className="section-title">{t('setup.removeTitle')}</p>
+            <div className="card card-pad">
+              {archivedAt ? (
+                <>
+                  <p className="field-hint" style={{ marginTop: 0 }}>{t('setup.archivedNotice')}</p>
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    disabled={removing}
+                    onClick={() => void restoreVilla()}
+                  >
+                    {t('setup.unarchiveVilla')}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="field-hint" style={{ marginTop: 0 }}>
+                    {bookingCount > 0
+                      ? t('setup.archiveHint', { bookings: tn('bookings', bookingCount) })
+                      : t('setup.deleteHint')}
+                  </p>
+                  <button
+                    type="button"
+                    className={bookingCount > 0 ? 'button button-secondary' : 'button button-danger'}
+                    disabled={removing}
+                    onClick={() => void removeVilla()}
+                  >
+                    {bookingCount > 0 ? t('setup.archiveVilla') : t('setup.deleteVilla')}
+                  </button>
+                </>
+              )}
+            </div>
+          </>
         )}
       </main>
     </>

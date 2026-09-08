@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { fetchVillas } from '../lib/api'
+import { fetchArchivedVillas, fetchVillas, setVillaArchived } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { formatMoney, formatPercent } from '../lib/format'
 import { useI18n } from '../lib/i18n'
 import { useBackButton } from '../lib/useBackButton'
-import type { VillaWithAccess } from '../lib/types'
+import type { Villa, VillaWithAccess } from '../lib/types'
 import { Empty, ErrorState, Loading, ProfileHeader } from '../components/ui'
 
 function VillaCard({ villa, onOpen }: { villa: VillaWithAccess; onOpen: () => void }) {
@@ -49,6 +49,9 @@ export default function Home() {
   const { t } = useI18n()
   const navigate = useNavigate()
   const [villas, setVillas] = useState<VillaWithAccess[] | null>(null)
+  const [archived, setArchived] = useState<Villa[]>([])
+  const [showArchived, setShowArchived] = useState(false)
+  const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useBackButton(null)
@@ -57,7 +60,13 @@ export default function Home() {
     if (!user?.is_owner && !user?.is_makler) return
     setError(null)
     try {
-      setVillas(await fetchVillas(user.id))
+      const [active, archivedRows] = await Promise.all([
+        fetchVillas(user.id),
+        // Only an owner can have archived any; a makler's roster is theirs.
+        user.is_owner ? fetchArchivedVillas() : Promise.resolve([] as Villa[]),
+      ])
+      setVillas(active)
+      setArchived(archivedRows)
     } catch (err) {
       setError((err as Error).message)
     }
@@ -120,6 +129,51 @@ export default function Home() {
                       owned.map((villa) => (
                         <VillaCard key={villa.id} villa={villa} onOpen={() => navigate(`/villa/${villa.id}`)} />
                       ))
+                    )}
+                  </>
+                )}
+
+                {user.is_owner && archived.length > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      className="archived-toggle"
+                      aria-expanded={showArchived}
+                      onClick={() => setShowArchived((current) => !current)}
+                    >
+                      {t('home.archivedToggle', { count: archived.length })}
+                      <span aria-hidden="true">{showArchived ? '\u2039' : '\u203a'}</span>
+                    </button>
+                    {showArchived && (
+                      <div className="list">
+                        {archived.map((villa) => (
+                          <div className="row row-static" key={villa.id}>
+                            <div className="row-main">
+                              <div className="row-title">{villa.name}</div>
+                              <div className="row-sub">{villa.villa_code}</div>
+                            </div>
+                            <button
+                              type="button"
+                              className="button button-secondary button-small"
+                              disabled={busyId === villa.id}
+                              onClick={async () => {
+                                setBusyId(villa.id)
+                                setError(null)
+                                try {
+                                  await setVillaArchived(villa.id, false)
+                                  await load()
+                                } catch (err) {
+                                  setError((err as Error).message)
+                                } finally {
+                                  setBusyId(null)
+                                }
+                              }}
+                            >
+                              {t('home.unarchive')}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </>
                 )}

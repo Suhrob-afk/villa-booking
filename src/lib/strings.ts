@@ -367,6 +367,30 @@ const en = {
   'breakdown.payout': 'Payout',
   'breakdown.gross': 'Gross revenue',
   'breakdown.included': 'Bookings included',
+  // ------------------------------------------------- retroactive logging --
+  'booking.pastDateNotice':
+    'You can log a booking for this date if you had one — it’ll be included in your revenue totals.',
+  'booking.untitled': 'Booking',
+  'booking.depositHintSimple':
+    'Held against damages, refunded on checkout — separate from the price above. Minimum {min}.',
+  'calendar.dayBookedNoName': '{date} — booked',
+  'calendar.dayLoggable': '{date} — past, tap to log a booking',
+  'plural.bookings_one': '{count} booking',
+  'plural.bookings_few': '{count} bookings',
+  'plural.bookings_many': '{count} bookings',
+  'plural.bookings_other': '{count} bookings',
+
+  // ------------------------------------------------------ villa removal --
+  'setup.removeTitle': 'Remove villa',
+  'setup.deleteHint': 'This villa has no bookings, so it can be deleted permanently.',
+  'setup.archiveVilla': 'Archive villa',
+  'setup.archiveHint':
+    'This villa has {bookings} in its history. Archiving hides it from My Villas and keeps every booking, payout and commission exactly as they are.',
+  'setup.archiveConfirm': 'Archive this villa? It leaves My Villas but keeps all of its history.',
+  'setup.unarchiveVilla': 'Restore villa',
+  'setup.archivedNotice': 'This villa is archived. It stays out of My Villas, and its revenue still counts.',
+  'home.archivedToggle': 'Archived villas ({count})',
+  'home.unarchive': 'Restore',
 }
 
 export type StringKey = keyof typeof en
@@ -650,6 +674,30 @@ const ru: Record<StringKey, string> = {
   'breakdown.payout': 'Выплата',
   'breakdown.gross': 'Валовая выручка',
   'breakdown.included': 'Учтённые брони',
+  // ------------------------------------------------- retroactive logging --
+  'booking.pastDateNotice':
+    'Если на эту дату была бронь, её можно внести задним числом — она попадёт в вашу выручку.',
+  'booking.untitled': 'Бронь',
+  'booking.depositHintSimple':
+    'Удерживается на случай ущерба и возвращается при выезде — отдельно от суммы выше. Минимум {min}.',
+  'calendar.dayBookedNoName': '{date} — занято',
+  'calendar.dayLoggable': '{date} — прошедший день, нажмите, чтобы внести бронь',
+  'plural.bookings_one': '{count} бронь',
+  'plural.bookings_few': '{count} брони',
+  'plural.bookings_many': '{count} броней',
+  'plural.bookings_other': '{count} броней',
+
+  // ------------------------------------------------------ villa removal --
+  'setup.removeTitle': 'Удаление виллы',
+  'setup.deleteHint': 'У этой виллы нет броней, поэтому её можно удалить безвозвратно.',
+  'setup.archiveVilla': 'Архивировать виллу',
+  'setup.archiveHint':
+    'В истории этой виллы {bookings}. Архивация уберёт её из «Моих вилл», но все брони, выплаты и комиссии останутся без изменений.',
+  'setup.archiveConfirm': 'Архивировать виллу? Она исчезнет из «Моих вилл», но вся история сохранится.',
+  'setup.unarchiveVilla': 'Вернуть виллу',
+  'setup.archivedNotice': 'Вилла в архиве. Она не показывается в «Моих виллах», но её выручка по-прежнему учитывается.',
+  'home.archivedToggle': 'Виллы в архиве ({count})',
+  'home.unarchive': 'Вернуть',
 }
 
 const uz: Record<StringKey, string> = {
@@ -931,6 +979,30 @@ const uz: Record<StringKey, string> = {
   'breakdown.payout': 'To‘lov',
   'breakdown.gross': 'Yalpi tushum',
   'breakdown.included': 'Hisobga olingan bronlar',
+  // ------------------------------------------------- retroactive logging --
+  'booking.pastDateNotice':
+    'Agar bu sanada bron bo‘lgan bo‘lsa, uni keyin ham qayd etishingiz mumkin — u tushumingizga qo‘shiladi.',
+  'booking.untitled': 'Bron',
+  'booking.depositHintSimple':
+    'Zarar uchun ushlab turiladi va ketishda qaytariladi — yuqoridagi summadan alohida. Eng kami {min}.',
+  'calendar.dayBookedNoName': '{date} — band',
+  'calendar.dayLoggable': '{date} — o‘tgan kun, bron qayd etish uchun bosing',
+  'plural.bookings_one': '{count} bron',
+  'plural.bookings_few': '{count} bron',
+  'plural.bookings_many': '{count} bron',
+  'plural.bookings_other': '{count} bron',
+
+  // ------------------------------------------------------ villa removal --
+  'setup.removeTitle': 'Villani olib tashlash',
+  'setup.deleteHint': 'Bu villada bron yo‘q, shuning uchun uni butunlay o‘chirish mumkin.',
+  'setup.archiveVilla': 'Villani arxivlash',
+  'setup.archiveHint':
+    'Bu villa tarixida {bookings} bor. Arxivlash uni «Mening villalarim»dan yashiradi, barcha bron, to‘lov va komissiyalar esa o‘zgarishsiz qoladi.',
+  'setup.archiveConfirm': 'Villa arxivlansinmi? U «Mening villalarim»dan chiqadi, lekin butun tarixi saqlanadi.',
+  'setup.unarchiveVilla': 'Villani tiklash',
+  'setup.archivedNotice': 'Villa arxivda. U «Mening villalarim»da ko‘rinmaydi, tushumi esa hisobga olinaveradi.',
+  'home.archivedToggle': 'Arxivdagi villalar ({count})',
+  'home.unarchive': 'Tiklash',
 }
 
 export const STRINGS: Record<Lang, Record<StringKey, string>> = { en, ru, uz }
@@ -950,7 +1022,7 @@ export function translate(lang: Lang, key: StringKey, vars?: Vars): string {
 }
 
 /** Bases that have `_one` / `_few` / `_many` / `_other` variants in the table. */
-export type PluralBase = 'nights' | 'weekdayNights' | 'weekendNights' | 'guests'
+export type PluralBase = 'nights' | 'weekdayNights' | 'weekendNights' | 'guests' | 'bookings'
 
 export function plural(lang: Lang, base: PluralBase, count: number, vars?: Vars): string {
   const key = `plural.${base}_${pluralCategory(lang, count)}` as StringKey

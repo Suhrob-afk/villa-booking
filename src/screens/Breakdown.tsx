@@ -10,7 +10,7 @@ import {
   shiftPeriod,
   type PeriodUnit,
 } from '../lib/dates'
-import { formatMoney } from '../lib/format'
+import { bookingTitle, formatMoney } from '../lib/format'
 import { useI18n } from '../lib/i18n'
 import type { StringKey } from '../lib/strings'
 import { useBackButton } from '../lib/useBackButton'
@@ -214,7 +214,9 @@ export default function Breakdown() {
                 >
                   <div className="row-main">
                     <div className="row-title">
-                      {scope === 'all' ? `${booking.villa?.name} · ${booking.client_name}` : booking.client_name}
+                      {scope === 'all'
+                        ? `${booking.villa?.name} · ${bookingTitle(booking.client_name, t('booking.untitled'))}`
+                        : bookingTitle(booking.client_name, t('booking.untitled'))}
                       {!booking.deposit_paid && (
                         <span className="badge badge-pending"> {t('villa.depositPending')}</span>
                       )}

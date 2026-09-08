@@ -244,6 +244,26 @@ button, input, select, textarea { font: inherit; color: inherit; }
   font-size: 12.5px;
 }
 
+/* Collapsed "Archived villas (2)" disclosure under the owner's villa list. */
+.archived-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 20px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.archived-toggle:active { background: var(--surface-sunken); }
+
 /* --------------------------------------------------------------- tabbar -- */
 
 .tabbar {
@@ -783,6 +803,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .segmented-item + .segmented-item { border-left: 1px solid var(--border-strong); }
 .segmented-item-active { background: var(--accent); color: #fff; }
+
+/* An empty day that has already passed. Still muted -- it is not availability
+   being offered -- but it responds to a tap so a booking can be logged late. */
+.day.loggable { cursor: pointer; }
+.day.loggable .day-circle {
+  border: 1px dashed var(--border-strong);
+  color: var(--text-muted);
+}
+.day.loggable:active .day-circle { background: var(--surface-sunken); }
 
 /* The tapped-but-not-yet-booked day, while its info card is open. */
 .day.selected .day-circle {

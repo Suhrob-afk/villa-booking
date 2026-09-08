@@ -71,6 +71,11 @@ export interface Villa {
   deposit_amount: number
   /** Human-friendly reference, e.g. villa_id0001. Display only -- nothing joins on it. */
   villa_code: string
+  /**
+   * Set once the owner archives it: off the active list, every booking and
+   * payout still counted. Null for a live villa.
+   */
+  archived_at: string | null
   capacity: number | null
   created_at: string
 }

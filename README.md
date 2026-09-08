@@ -212,6 +212,32 @@ for the next guest. A GiST exclusion constraint enforces that no two
 *confirmed* bookings on a villa overlap; cancelling releases the nights
 immediately.
 
+**Owner-logged bookings.** When an owner logs a booking on their own villa
+there is no makler to credit and therefore no commission to split, so that
+form drops client name, phone, the makler credit and the split panel
+entirely — these are arranged by phone outside the app, and Notes holds
+anything worth writing down. `client_name` is NOT NULL, so those rows store an
+empty string and every list falls back to a label via `bookingTitle()`. A
+makler's own booking is unchanged: client, phone and the full split stay.
+
+**Logging after the fact.** An empty day in the past is tappable. It still
+renders muted — it is not availability on offer — but it opens the booking
+form so a stay that already happened can be recorded, and it counts towards
+revenue like any other booking (attributed to the period containing its
+check-in). Blocking a past day is meaningless, so a past day skips the
+block-vs-log choice and goes straight to the form. A past day that *has* a
+confirmed booking keeps rendering as booked, not as past.
+
+**Removing a villa.** No bookings: a real delete. Any bookings at all,
+cancelled included: archive instead. `bookings.villa_id` is `ON DELETE
+CASCADE`, so deleting a villa with history would take its bookings — and the
+payouts and commissions counted from them — with it. `villas_delete_guard()`
+(migration `0011`) refuses that in the database rather than trusting the UI.
+Archiving is just `villas.archived_at`: the rows do not move, so an archived
+villa still counts everywhere revenue is aggregated, including Breakdown's
+"all my villas". It leaves the active list only, and Home's "Archived villas"
+disclosure restores it.
+
 **Calendar.** Month grid, one circle per day. Light blue = available, solid
 dark blue = booked, with consecutive booked days bridged into a single strip.
 Managers tap a light day to open a pre-dated booking form; owners get a

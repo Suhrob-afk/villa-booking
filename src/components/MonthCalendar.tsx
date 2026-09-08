@@ -28,6 +28,12 @@ interface Props {
   onNextMonth: () => void
   /** Tapping a free day. Maklers start a booking, owners start a block. */
   onSelectDay?: (date: Date) => void
+  /**
+   * Whether an empty day that has already passed can be tapped to log a
+   * booking after the fact. It still renders muted -- it is not availability
+   * on offer -- but it is not inert either.
+   */
+  onSelectPastDay?: (date: Date) => void
   /** The free day currently showing its card, if any. */
   selectedISO?: string | null
   onSelectBooking: (booking: Booking) => void
@@ -49,6 +55,7 @@ export default function MonthCalendar({
   onPrevMonth,
   onNextMonth,
   onSelectDay,
+  onSelectPastDay,
   selectedISO,
   onSelectBooking,
   onSelectBlock,
@@ -108,6 +115,8 @@ export default function MonthCalendar({
               const isPast = date < today
               const isToday = isSameDay(date, today)
               const isFree = !state && !isPast && Boolean(onSelectDay)
+              /** An empty day in the past: muted, but loggable after the fact. */
+              const isLoggable = !state && isPast && Boolean(onSelectPastDay)
 
               // Bridge to a neighbour only when it is the same booking or the
               // same block, and is itself visible in this row.
@@ -127,6 +136,7 @@ export default function MonthCalendar({
               const classes = [
                 'day',
                 state ? state.kind : isFree ? 'available' : 'past',
+                isLoggable ? 'loggable' : '',
                 linksLeft ? 'link-left' : '',
                 linksRight ? 'link-right' : '',
                 isToday ? 'today' : '',
@@ -135,15 +145,19 @@ export default function MonthCalendar({
                 .filter(Boolean)
                 .join(' ')
 
-              const interactive = Boolean(state) || isFree
+              const interactive = Boolean(state) || isFree || isLoggable
 
               const label = state
                 ? state.kind === 'booked'
-                  ? t('calendar.dayBooked', { date: iso, name: state.booking.client_name })
+                  ? state.booking.client_name.trim()
+                    ? t('calendar.dayBooked', { date: iso, name: state.booking.client_name })
+                    : t('calendar.dayBookedNoName', { date: iso })
                   : t('calendar.dayBlocked', { date: iso })
                 : isFree
                   ? t('calendar.dayAvailable', { date: iso })
-                  : t('calendar.dayUnavailable', { date: iso })
+                  : isLoggable
+                    ? t('calendar.dayLoggable', { date: iso })
+                    : t('calendar.dayUnavailable', { date: iso })
 
               return (
                 <button
@@ -157,6 +171,7 @@ export default function MonthCalendar({
                     haptic('light')
                     if (state?.kind === 'booked') onSelectBooking(state.booking)
                     else if (state?.kind === 'blocked') onSelectBlock(state.block)
+                    else if (isLoggable) onSelectPastDay?.(date)
                     else onSelectDay?.(date)
                   }}
                 >

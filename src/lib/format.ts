@@ -25,3 +25,12 @@ function round(value: number, digits: number): number {
   const factor = 10 ** digits
   return Math.round(value * factor) / factor
 }
+
+/**
+ * What to call a booking in a list. An owner-logged booking carries no client
+ * name -- that flow drops client identity entirely -- so it falls back to a
+ * plain label rather than rendering an empty row title.
+ */
+export function bookingTitle(clientName: string, fallback: string): string {
+  return clientName.trim() || fallback
+}

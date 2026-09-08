@@ -4,7 +4,6 @@ import {
   createBooking,
   fetchBooking,
   fetchVilla,
-  findMaklerForVilla,
   isAssignedMakler,
   setBookingStatus,
   setDepositPaid as saveDepositPaid,
@@ -12,7 +11,7 @@ import {
 } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { addDays, formatRange, nightCount, parseISODate, startOfToday, toISODate } from '../lib/dates'
-import { formatMoney, formatPercent } from '../lib/format'
+import { bookingTitle, formatMoney, formatPercent } from '../lib/format'
 import { useI18n } from '../lib/i18n'
 import { quoteRange, splitTotal } from '../lib/pricing'
 import type { StringKey } from '../lib/strings'
@@ -70,11 +69,8 @@ export default function BookingScreen() {
   const [clientType, setClientType] = useState<ClientType | ''>('')
   const [depositPaid, setDepositPaid] = useState(false)
 
-  // Owner-logged bookings only: the makler being credited, if any.
+  /** Whether the signed-in user is a standing makler on this villa. */
   const [assignedMakler, setAssignedMakler] = useState(false)
-  const [creditInput, setCreditInput] = useState('')
-  const [creditedMakler, setCreditedMakler] = useState<{ id: string; oikoz_id: string; name: string } | null>(null)
-  const [creditBusy, setCreditBusy] = useState(false)
   const [notes, setNotes] = useState('')
   /** Once the makler types a total by hand we stop overwriting it. */
   const [totalEdited, setTotalEdited] = useState(false)
@@ -164,15 +160,19 @@ export default function BookingScreen() {
    * there would wrongly zero out a makler's commission whenever an owner
    * opened their booking.
    */
-  const maklerCredited = isNew
-    ? filingAsOwner
-      ? Boolean(creditedMakler)
-      : true
-    : Boolean(booking?.manager_id)
+  const maklerCredited = isNew ? !filingAsOwner : Boolean(booking?.manager_id)
   const noMaklerCredited = !maklerCredited
   const isCancelled = booking?.status === 'cancelled'
-  const ownsThisBooking = filingAsOwner && (isNew || booking?.manager_id === null)
-  const readOnly = (isOwner && !ownsThisBooking) || isCancelled
+  /**
+   * The owner logging a booking on their own villa with nobody credited.
+   * These are arranged by phone outside the app, so the form drops client
+   * identity, the makler credit and the commission split: there is no
+   * commission to split and no contact to store that Notes cannot hold.
+   * An owner looking at a *makler's* booking is not this -- they still see
+   * the client and the split, they just cannot edit them.
+   */
+  const ownerLogged = filingAsOwner && (isNew || booking?.manager_id === null)
+  const readOnly = (isOwner && !ownerLogged) || isCancelled
 
   // Existing bookings keep the rate they were created with.
   const villaRate = booking?.commission_rate_snapshot ?? villa?.commission_rate ?? 0
@@ -196,7 +196,7 @@ export default function BookingScreen() {
 
   async function save() {
     if (!villa || !user) return
-    if (!clientName.trim()) return setError(t('error.clientNameRequired'))
+    if (!ownerLogged && !clientName.trim()) return setError(t('error.clientNameRequired'))
     if (!checkIn || !checkOut) return setError(t('error.datesRequired'))
     if (checkOut <= checkIn) return setError(t('error.checkOutAfterCheckIn'))
     const depositValue = Number(deposit)
@@ -218,8 +218,11 @@ export default function BookingScreen() {
     setError(null)
     try {
       const payload = {
-        client_name: clientName.trim(),
-        client_phone: clientPhone.trim() || null,
+        // client_name is NOT NULL in the schema; an owner-logged booking has
+        // no client identity to store, so it goes in empty and the lists fall
+        // back to a label (see bookingTitle).
+        client_name: ownerLogged ? '' : clientName.trim(),
+        client_phone: ownerLogged ? null : clientPhone.trim() || null,
         check_in: checkIn,
         check_out: checkOut,
         total_price: Number(total) || 0,
@@ -230,18 +233,13 @@ export default function BookingScreen() {
         deposit_paid: depositPaid,
         notes: notes.trim() || null,
       }
-      // A makler always credits themselves; an owner credits whoever they
-      // named, or nobody at all.
-      const managerId = filingAsOwner ? (creditedMakler?.id ?? null) : user.id
+      // A makler always credits themselves; an owner logging their own
+      // booking credits nobody, so no commission is owed on it.
+      const managerId = filingAsOwner ? null : user.id
       if (isNew) {
         await createBooking({ ...payload, villa_id: villa.id, manager_id: managerId })
       } else {
-        await updateBooking(booking!.id, {
-          ...payload,
-          // An owner may credit someone after the fact on a booking that had
-          // nobody; an existing credit is left alone.
-          manager_id: filingAsOwner ? (creditedMakler?.id ?? booking!.manager_id) : booking!.manager_id,
-        })
+        await updateBooking(booking!.id, { ...payload, manager_id: booking!.manager_id })
       }
       notify('success')
       navigate(`/villa/${villa.id}`)
@@ -273,43 +271,50 @@ export default function BookingScreen() {
   if (!villa || !user) return null
 
   const nights = nightCount(checkIn, checkOut)
+  /** A stay whose check-in has already passed: logged after the fact. */
+  const isPastStay = Boolean(checkIn) && checkIn < toISODate(startOfToday())
   const showResetTotal = !readOnly && quote.nights > 0 && Number(total) !== quote.suggestedTotal
 
   return (
     <>
       <TopBar
-        title={isNew ? t('booking.titleNew') : booking?.client_name || t('booking.title')}
+        title={isNew ? t('booking.titleNew') : bookingTitle(booking?.client_name ?? '', t('booking.title'))}
         subtitle={villa.name}
         onBack={goBack}
       />
       <main className="screen">
         {error && <Alert>{error}</Alert>}
+        {isPastStay && !isCancelled && <Alert kind="info">{t('booking.pastDateNotice')}</Alert>}
         {isCancelled && <Alert kind="info">{t('booking.cancelledNotice')}</Alert>}
         {isOwner && !isNew && !isCancelled && <Alert kind="info">{t('booking.ownerReadOnly')}</Alert>}
 
         <div className="card card-pad">
-          <div className="field">
-            <label htmlFor="client">{t('booking.clientNameLabel')}</label>
-            <input
-              id="client"
-              value={clientName}
-              disabled={readOnly}
-              onChange={(e) => setClientName(e.target.value)}
-              placeholder={t('booking.clientNamePlaceholder')}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="phone">{t('booking.phoneLabel')}</label>
-            <input
-              id="phone"
-              type="tel"
-              inputMode="tel"
-              value={clientPhone}
-              disabled={readOnly}
-              onChange={(e) => setClientPhone(e.target.value)}
-              placeholder={t('booking.phonePlaceholder')}
-            />
-          </div>
+          {!ownerLogged && (
+            <>
+              <div className="field">
+                <label htmlFor="client">{t('booking.clientNameLabel')}</label>
+                <input
+                  id="client"
+                  value={clientName}
+                  disabled={readOnly}
+                  onChange={(e) => setClientName(e.target.value)}
+                  placeholder={t('booking.clientNamePlaceholder')}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="phone">{t('booking.phoneLabel')}</label>
+                <input
+                  id="phone"
+                  type="tel"
+                  inputMode="tel"
+                  value={clientPhone}
+                  disabled={readOnly}
+                  onChange={(e) => setClientPhone(e.target.value)}
+                  placeholder={t('booking.phonePlaceholder')}
+                />
+              </div>
+            </>
+          )}
           <div className="field-row">
             <div className="field">
               <label htmlFor="check-in">{t('booking.checkIn')}</label>
@@ -356,71 +361,6 @@ export default function BookingScreen() {
             </select>
           </div>
         </div>
-
-        {filingAsOwner && (
-          <>
-            <p className="section-title">{t('booking.commissionTitle')}</p>
-            <div className="card card-pad">
-              {creditedMakler ? (
-                <div className="row row-static" style={{ padding: 0 }}>
-                  <div className="row-main">
-                    <div className="row-title">{creditedMakler.name}</div>
-                    <div className="row-sub">{t('booking.creditedFor', { reference: creditedMakler.oikoz_id })}</div>
-                  </div>
-                  {!readOnly && (
-                    <button
-                      type="button"
-                      className="button button-danger button-small"
-                      onClick={() => {
-                        setCreditedMakler(null)
-                        setCreditInput('')
-                      }}
-                    >
-                      {t('common.remove')}
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <>
-                  <div className="field" style={{ marginBottom: 10 }}>
-                    <label htmlFor="credit-makler">{t('booking.creditLabel')}</label>
-                    <input
-                      id="credit-makler"
-                      autoCapitalize="none"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      value={creditInput}
-                      disabled={readOnly}
-                      onChange={(e) => setCreditInput(e.target.value)}
-                      placeholder="oikoz_id0001"
-                    />
-                  </div>
-                  {!readOnly && (
-                    <button
-                      type="button"
-                      className="button button-secondary"
-                      disabled={creditBusy || !creditInput.trim()}
-                      onClick={async () => {
-                        setCreditBusy(true)
-                        setError(null)
-                        try {
-                          setCreditedMakler(await findMaklerForVilla(villa.id, creditInput.trim()))
-                        } catch (err) {
-                          setError(humanizeError((err as Error).message))
-                        } finally {
-                          setCreditBusy(false)
-                        }
-                      }}
-                    >
-                      {creditBusy ? t('booking.creditChecking') : t('booking.creditSubmit')}
-                    </button>
-                  )}
-                  <p className="field-hint">{t('booking.creditHint')}</p>
-                </>
-              )}
-            </div>
-          </>
-        )}
 
         <p className="section-title">{t('booking.priceTitle')}</p>
 
@@ -564,7 +504,10 @@ export default function BookingScreen() {
             />
             {!readOnly && (
               <p className="field-hint">
-                {t('booking.depositHint', { min: MIN_DEPOSIT.toLocaleString('en-US') })}
+                {/* Only the full hint can mention a split; owner-logged bookings have none. */}
+                {t(ownerLogged ? 'booking.depositHintSimple' : 'booking.depositHint', {
+                  min: MIN_DEPOSIT.toLocaleString('en-US'),
+                })}
               </p>
             )}
 
@@ -595,51 +538,55 @@ export default function BookingScreen() {
           </div>
         </div>
 
-        <p className="section-title">{t('booking.splitTitle')}</p>
-        <div className="card card-pad">
-          <dl className="summary">
-            <div className="summary-row total">
-              <dt>{t('booking.splitTotal')}</dt>
-              <dd>{formatMoney(Number(total) || 0, villa.currency)}</dd>
-            </div>
-            {(villa.platform_fee_rate > 0 || split.platformFee > 0) && (
+        {!ownerLogged && (
+          <>
+          <p className="section-title">{t('booking.splitTitle')}</p>
+          <div className="card card-pad">
+            <dl className="summary">
+              <div className="summary-row total">
+                <dt>{t('booking.splitTotal')}</dt>
+                <dd>{formatMoney(Number(total) || 0, villa.currency)}</dd>
+              </div>
+              {(villa.platform_fee_rate > 0 || split.platformFee > 0) && (
+                <div className="summary-row">
+                  <dt>{t('booking.splitPlatformFee', { rate: formatPercent(villa.platform_fee_rate) })}</dt>
+                  <dd>−{formatMoney(split.platformFee, villa.currency)}</dd>
+                </div>
+              )}
               <div className="summary-row">
-                <dt>{t('booking.splitPlatformFee', { rate: formatPercent(villa.platform_fee_rate) })}</dt>
-                <dd>−{formatMoney(split.platformFee, villa.currency)}</dd>
+                <dt>
+                  {!maklerCredited
+                    ? t('booking.splitNoMakler')
+                    : pricingMode === 'owner_net'
+                      ? t('booking.splitSpread')
+                      : t('booking.splitCommission', { rate: formatPercent(commissionRate) })}
+                </dt>
+                <dd>{formatMoney(split.managerCommission, villa.currency)}</dd>
+              </div>
+              <div className="summary-row total">
+                <dt>{t('booking.splitOwnerPayout')}</dt>
+                <dd>{formatMoney(split.ownerPayout, villa.currency)}</dd>
+              </div>
+              <div className="summary-row muted">
+                <dt>{t('booking.splitDeposit')}</dt>
+                <dd>{formatMoney(Number(deposit) || 0, villa.currency)}</dd>
+              </div>
+            </dl>
+            {booking && (
+              <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+                <span className={`badge ${booking.status === 'confirmed' ? 'badge-accent' : 'badge-danger'}`}>
+                  {booking.status === 'confirmed' ? t('booking.statusConfirmed') : t('booking.statusCancelled')}
+                </span>
+                <span className={`badge ${booking.commission_status === 'paid' ? 'badge-success' : 'badge-warning'}`}>
+                  {t('booking.commissionBadge', {
+                    status: booking.commission_status === 'paid' ? t('common.paid') : t('common.unpaid'),
+                  })}
+                </span>
               </div>
             )}
-            <div className="summary-row">
-              <dt>
-                {!maklerCredited
-                  ? t('booking.splitNoMakler')
-                  : pricingMode === 'owner_net'
-                    ? t('booking.splitSpread')
-                    : t('booking.splitCommission', { rate: formatPercent(commissionRate) })}
-              </dt>
-              <dd>{formatMoney(split.managerCommission, villa.currency)}</dd>
-            </div>
-            <div className="summary-row total">
-              <dt>{t('booking.splitOwnerPayout')}</dt>
-              <dd>{formatMoney(split.ownerPayout, villa.currency)}</dd>
-            </div>
-            <div className="summary-row muted">
-              <dt>{t('booking.splitDeposit')}</dt>
-              <dd>{formatMoney(Number(deposit) || 0, villa.currency)}</dd>
-            </div>
-          </dl>
-          {booking && (
-            <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-              <span className={`badge ${booking.status === 'confirmed' ? 'badge-accent' : 'badge-danger'}`}>
-                {booking.status === 'confirmed' ? t('booking.statusConfirmed') : t('booking.statusCancelled')}
-              </span>
-              <span className={`badge ${booking.commission_status === 'paid' ? 'badge-success' : 'badge-warning'}`}>
-                {t('booking.commissionBadge', {
-                  status: booking.commission_status === 'paid' ? t('common.paid') : t('common.unpaid'),
-                })}
-              </span>
-            </div>
-          )}
-        </div>
+          </div>
+          </>
+        )}
 
         {!readOnly && (
           <div className="field" style={{ marginTop: 16 }}>

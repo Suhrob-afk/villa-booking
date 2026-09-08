@@ -38,7 +38,12 @@ export async function updateOwnLanguage(userId: string, language: Lang): Promise
  * "managed" here, since the difference only matters inside the villa itself.
  */
 export async function fetchVillas(userId: string): Promise<VillaWithAccess[]> {
-  const villas = await supabase.from('villas').select('*').order('name').then(unwrap<Villa[]>)
+  const villas = await supabase
+    .from('villas')
+    .select('*')
+    .is('archived_at', null)
+    .order('name')
+    .then(unwrap<Villa[]>)
   return villas.map((villa) => ({
     ...villa,
     access: villa.owner_id === userId ? 'owned' : 'managed',
@@ -50,7 +55,7 @@ export async function fetchVilla(villaId: string): Promise<Villa> {
 }
 
 /** villa_code is minted by the database, never sent by the client. */
-export type VillaInput = Omit<Villa, 'id' | 'created_at' | 'owner_id' | 'villa_code'>
+export type VillaInput = Omit<Villa, 'id' | 'created_at' | 'owner_id' | 'villa_code' | 'archived_at'>
 
 export async function createVilla(ownerId: string, input: VillaInput): Promise<Villa> {
   return supabase.from('villas').insert({ ...input, owner_id: ownerId }).select('*').single().then(unwrap<Villa>)
@@ -60,9 +65,44 @@ export async function updateVilla(villaId: string, input: VillaInput): Promise<V
   return supabase.from('villas').update(input).eq('id', villaId).select('*').single().then(unwrap<Villa>)
 }
 
+/**
+ * Only ever legal on a villa with no bookings -- a database trigger refuses
+ * the rest, because villa_id cascades and would take the history with it.
+ */
 export async function deleteVilla(villaId: string): Promise<void> {
   const { error } = await supabase.from('villas').delete().eq('id', villaId)
   if (error) throw new Error(error.message)
+}
+
+/** Archived villas leave the active list; nothing about their data changes. */
+export async function fetchArchivedVillas(): Promise<Villa[]> {
+  return supabase
+    .from('villas')
+    .select('*')
+    .not('archived_at', 'is', null)
+    .order('name')
+    .then(unwrap<Villa[]>)
+}
+
+export async function setVillaArchived(villaId: string, archived: boolean): Promise<void> {
+  const { error } = await supabase
+    .from('villas')
+    .update({ archived_at: archived ? new Date().toISOString() : null })
+    .eq('id', villaId)
+  if (error) throw new Error(error.message)
+}
+
+/**
+ * How much history a villa has, cancellations included -- it decides whether
+ * removal means delete or archive. Counted, never fetched.
+ */
+export async function countVillaBookings(villaId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from('bookings')
+    .select('id', { count: 'exact', head: true })
+    .eq('villa_id', villaId)
+  if (error) throw new Error(error.message)
+  return count ?? 0
 }
 
 // ------------------------------------------------------------------- team --
