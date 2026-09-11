@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { fetchCommissionRows, setCommissionStatus, setDepositPaid, type CommissionRow } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { formatRange } from '../lib/dates'
-import { bookingTitle, formatMoney } from '../lib/format'
+import { bookingTitle, currencyCode, DEPOSIT_CURRENCY, formatMoney } from '../lib/format'
 import { useI18n } from '../lib/i18n'
 import { notify } from '../lib/telegram'
 import { useBackButton } from '../lib/useBackButton'
@@ -150,7 +150,7 @@ function MaklerView({ rows }: { rows: CommissionRow[] }) {
   const totals = useMemo(() => {
     const map = new Map<string, { unpaid: number; paid: number }>()
     for (const row of rows) {
-      const currency = row.villa?.currency ?? 'USD'
+      const currency = currencyCode(row.currency)
       const bucket = map.get(currency) ?? { unpaid: 0, paid: 0 }
       if (row.commission_status === 'paid') bucket.paid += row.manager_commission
       else bucket.unpaid += row.manager_commission
@@ -189,7 +189,7 @@ function MaklerView({ rows }: { rows: CommissionRow[] }) {
               </div>
             </div>
             <div className="row-amount">
-              {formatMoney(row.manager_commission, row.villa?.currency ?? 'USD')}
+              {formatMoney(row.manager_commission, currencyCode(row.currency))}
               <div className="row-sub">
                 <span className={`badge ${row.commission_status === 'paid' ? 'badge-success' : 'badge-warning'}`}>
                   {row.commission_status === 'paid' ? t('common.paid') : t('common.unpaid')}
@@ -224,6 +224,11 @@ function OwnerView({
 }) {
   const { lang, t } = useI18n()
   /**
+   * Only bookings a makler was credited on can owe commission. An owner's own
+   * booking has nobody to pay, so it never belongs in "open" or "settled".
+   */
+  const credited = useMemo(() => rows.filter((row) => row.manager_id), [rows])
+  /**
    * One running total per makler per currency: an owner may owe the same
    * person in both USD and UZS, and those must never be added together.
    */
@@ -231,7 +236,7 @@ function OwnerView({
     const map = new Map<string, OwnerTotal>()
     for (const row of rows) {
       if (!row.manager_id) continue
-      const currency = row.villa?.currency ?? 'USD'
+      const currency = currencyCode(row.currency)
       const key = `${row.manager_id}:${currency}`
       const entry = map.get(key) ?? {
         maklerId: row.manager_id,
@@ -250,15 +255,15 @@ function OwnerView({
   /** The working list: everything still unpaid, soonest stay first. */
   const open = useMemo(
     () =>
-      rows
+      credited
         .filter((row) => row.commission_status === 'unpaid')
         .sort((a, b) => a.check_in.localeCompare(b.check_in)),
-    [rows],
+    [credited],
   )
 
-  const settled = useMemo(() => rows.filter((row) => row.commission_status === 'paid'), [rows])
+  const settled = useMemo(() => credited.filter((row) => row.commission_status === 'paid'), [credited])
 
-  if (rows.length === 0) {
+  if (credited.length === 0) {
     return <Empty title={t('commissions.ownerEmptyTitle')}>{t('commissions.ownerEmptyBody')}</Empty>
   }
 
@@ -299,7 +304,7 @@ function OwnerView({
                   {row.villa?.name} · {formatRange(row.check_in, row.check_out, lang)}
                 </div>
                 <div className="row-sub">
-                  {formatMoney(row.manager_commission, row.villa?.currency ?? 'USD')}
+                  {formatMoney(row.manager_commission, currencyCode(row.currency))}
                 </div>
               </div>
               <button
@@ -333,7 +338,7 @@ function OwnerView({
                   disabled={busyId === row.id}
                   onClick={() => onTogglePaid(row)}
                 >
-                  ✓ {formatMoney(row.manager_commission, row.villa?.currency ?? 'USD')}
+                  ✓ {formatMoney(row.manager_commission, currencyCode(row.currency))}
                 </button>
               </div>
             ))}
@@ -362,14 +367,8 @@ function PendingDeposits({
   onMarkPaid: (row: CommissionRow) => void
 }) {
   const { lang, t } = useI18n()
-  const totals = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const row of rows) {
-      const currency = row.villa?.currency ?? 'USD'
-      map.set(currency, (map.get(currency) ?? 0) + row.deposit_amount)
-    }
-    return [...map.entries()]
-  }, [rows])
+  /** Deposits are always UZS, so unlike commission there is a single total. */
+  const outstanding = useMemo(() => rows.reduce((sum, row) => sum + row.deposit_amount, 0), [rows])
 
   if (rows.length === 0) {
     return <Empty title={t('commissions.noDepositsTitle')}>{t('commissions.noDepositsBody')}</Empty>
@@ -377,18 +376,16 @@ function PendingDeposits({
 
   return (
     <>
-      {totals.map(([currency, amount]) => (
-        <div className="stat-strip" key={currency}>
-          <div className="stat">
-            <div className="stat-label">{t('commissions.statOutstanding', { currency })}</div>
-            <div className="stat-value">{formatMoney(amount, currency)}</div>
-          </div>
-          <div className="stat">
-            <div className="stat-label">{t('commissions.bookings')}</div>
-            <div className="stat-value">{rows.filter((r) => (r.villa?.currency ?? 'USD') === currency).length}</div>
-          </div>
+      <div className="stat-strip">
+        <div className="stat">
+          <div className="stat-label">{t('commissions.statOutstanding', { currency: DEPOSIT_CURRENCY })}</div>
+          <div className="stat-value">{formatMoney(outstanding, DEPOSIT_CURRENCY)}</div>
         </div>
-      ))}
+        <div className="stat">
+          <div className="stat-label">{t('commissions.bookings')}</div>
+          <div className="stat-value">{rows.length}</div>
+        </div>
+      </div>
 
       <p className="section-title">{t('commissions.awaitingDeposit')}</p>
       <div className="list">
@@ -401,7 +398,7 @@ function PendingDeposits({
               </div>
               <div className="row-sub">
                 {t('commissions.amountDue', {
-                  amount: formatMoney(row.deposit_amount, row.villa?.currency ?? 'USD'),
+                  amount: formatMoney(row.deposit_amount, DEPOSIT_CURRENCY),
                 })}
               </div>
             </div>

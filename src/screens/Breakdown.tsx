@@ -10,7 +10,7 @@ import {
   shiftPeriod,
   type PeriodUnit,
 } from '../lib/dates'
-import { bookingTitle, formatMoney } from '../lib/format'
+import { bookingTitle, currencyCode, formatMoney } from '../lib/format'
 import { useI18n } from '../lib/i18n'
 import type { StringKey } from '../lib/strings'
 import { useBackButton } from '../lib/useBackButton'
@@ -29,6 +29,8 @@ interface CurrencyTotals {
   currency: string
   payout: number
   gross: number
+  nights: number
+  bookings: number
 }
 
 /**
@@ -90,16 +92,20 @@ export default function Breakdown() {
   )
 
   /**
-   * Villas can be priced in different currencies, so money is grouped rather
-   * than summed — a blended USD+UZS figure would be meaningless.
+   * Each booking carries its own currency — one villa can take UZS and USD
+   * bookings side by side — so money is grouped rather than summed, in the
+   * single-villa view exactly as in "all my villas". A blended USD+UZS figure
+   * would be meaningless.
    */
   const totals = useMemo(() => {
     const map = new Map<string, CurrencyTotals>()
     for (const booking of included) {
-      const currency = booking.villa?.currency ?? 'USD'
-      const entry = map.get(currency) ?? { currency, payout: 0, gross: 0 }
+      const currency = currencyCode(booking.currency)
+      const entry = map.get(currency) ?? { currency, payout: 0, gross: 0, nights: 0, bookings: 0 }
       entry.payout += booking.owner_payout
       entry.gross += booking.total_price
+      entry.nights += nightCount(booking.check_in, booking.check_out)
+      entry.bookings += 1
       map.set(currency, entry)
     }
     return [...map.values()].sort((a, b) => a.currency.localeCompare(b.currency))
@@ -196,6 +202,19 @@ export default function Breakdown() {
                   <dt>{t('breakdown.gross')}</dt>
                   <dd>{formatMoney(total.gross, total.currency)}</dd>
                 </div>
+                {/* With one currency these would only repeat the strip above. */}
+                {totals.length > 1 && (
+                  <>
+                    <div className="summary-row muted">
+                      <dt>{t('breakdown.nightsBooked')}</dt>
+                      <dd>{total.nights}</dd>
+                    </div>
+                    <div className="summary-row muted">
+                      <dt>{t('breakdown.bookings')}</dt>
+                      <dd>{total.bookings}</dd>
+                    </div>
+                  </>
+                )}
               </dl>
             </div>
           ))
@@ -224,10 +243,10 @@ export default function Breakdown() {
                     <div className="row-sub">{formatRange(booking.check_in, booking.check_out, lang)}</div>
                   </div>
                   <div className="row-amount">
-                    {formatMoney(booking.total_price, booking.villa?.currency ?? 'USD')}
+                    {formatMoney(booking.total_price, currencyCode(booking.currency))}
                     <div className="row-sub">
                       {t('villa.rowPayout', {
-                        amount: formatMoney(booking.owner_payout, booking.villa?.currency ?? 'USD'),
+                        amount: formatMoney(booking.owner_payout, currencyCode(booking.currency)),
                       })}
                     </div>
                   </div>

@@ -15,7 +15,7 @@ import {
   startOfToday,
   toISODate,
 } from '../lib/dates'
-import { bookingTitle, formatMoney } from '../lib/format'
+import { bookingTitle, currencyCode, DEPOSIT_CURRENCY, formatMoney, formatMoneyGroups } from '../lib/format'
 import { useI18n } from '../lib/i18n'
 import { MONTHS, WEEKDAYS_LONG } from '../lib/strings'
 import { confirmAction, notify } from '../lib/telegram'
@@ -76,11 +76,13 @@ export default function VillaCalendar() {
    * Nights booked inside the visible month, and what they are worth. The
    * commission figure counts only the current user's own bookings — a villa
    * can have several managers, and each one is shown their own earnings.
+   * Money is kept per currency: one villa can take UZS and USD bookings in the
+   * same month, and those two figures must never be added together.
    */
   const monthStats = useMemo(() => {
     let nights = 0
-    let commission = 0
-    let payout = 0
+    const commission = new Map<string, number>()
+    const payout = new Map<string, number>()
     for (const booking of bookings) {
       if (booking.status !== 'confirmed') continue
       const inMonth = nightsBetween(booking.check_in, booking.check_out).filter(
@@ -88,8 +90,11 @@ export default function VillaCalendar() {
       ).length
       if (!inMonth) continue
       nights += inMonth
-      payout += booking.owner_payout
-      if (booking.manager_id === user?.id) commission += booking.manager_commission
+      const code = currencyCode(booking.currency)
+      payout.set(code, (payout.get(code) ?? 0) + booking.owner_payout)
+      if (booking.manager_id === user?.id) {
+        commission.set(code, (commission.get(code) ?? 0) + booking.manager_commission)
+      }
     }
     return { nights, commission, payout }
   }, [bookings, month, user])
@@ -138,7 +143,7 @@ export default function VillaCalendar() {
           <span className="stat-figure">
             <span className="stat-label">{isOwner ? t('villa.yourPayout') : t('villa.yourCommission')}</span>
             <span className="stat-value">
-              {formatMoney(isOwner ? monthStats.payout : monthStats.commission, villa.currency)}
+              {formatMoneyGroups(isOwner ? monthStats.payout : monthStats.commission, villa.currency)}
             </span>
           </span>
           <span className="stat-card-chevron" aria-hidden="true">
@@ -302,12 +307,12 @@ export default function VillaCalendar() {
                   <div className="row-sub">{formatRange(booking.check_in, booking.check_out, lang)}</div>
                 </div>
                 <div className="row-amount">
-                  {formatMoney(booking.total_price, villa.currency)}
+                  {formatMoney(booking.total_price, currencyCode(booking.currency))}
                   <div className="row-sub">
                     {isOwner
-                      ? t('villa.rowPayout', { amount: formatMoney(booking.owner_payout, villa.currency) })
+                      ? t('villa.rowPayout', { amount: formatMoney(booking.owner_payout, currencyCode(booking.currency)) })
                       : booking.manager_id === user.id
-                        ? t('villa.rowYou', { amount: formatMoney(booking.manager_commission, villa.currency) })
+                        ? t('villa.rowYou', { amount: formatMoney(booking.manager_commission, currencyCode(booking.currency)) })
                         : t('villa.rowOtherMakler')}
                   </div>
                 </div>
@@ -361,7 +366,7 @@ function DayCard({
         </div>
         <div className="summary-row">
           <dt>{t('villa.deposit')}</dt>
-          <dd>{formatMoney(villa.deposit_amount, villa.currency)}</dd>
+          <dd>{formatMoney(villa.deposit_amount, DEPOSIT_CURRENCY)}</dd>
         </div>
       </dl>
 

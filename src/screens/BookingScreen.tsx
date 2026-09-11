@@ -11,16 +11,29 @@ import {
 } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { addDays, formatRange, nightCount, parseISODate, startOfToday, toISODate } from '../lib/dates'
-import { bookingTitle, formatMoney, formatPercent } from '../lib/format'
+import {
+  bookingTitle,
+  currencyCode,
+  defaultBookingCurrency,
+  DEPOSIT_CURRENCY,
+  formatMoney,
+  formatPercent,
+  MIN_DEPOSIT,
+} from '../lib/format'
 import { useI18n } from '../lib/i18n'
 import { quoteRange, splitTotal } from '../lib/pricing'
 import type { StringKey } from '../lib/strings'
 import { confirmAction, notify } from '../lib/telegram'
 import { useBackButton } from '../lib/useBackButton'
-import { CLIENT_TYPES, type Booking, type ClientType, type PricingMode, type Villa } from '../lib/types'
+import {
+  CLIENT_TYPES,
+  type Booking,
+  type BookingCurrency,
+  type ClientType,
+  type PricingMode,
+  type Villa,
+} from '../lib/types'
 import { Alert, ErrorState, Loading, TopBar } from '../components/ui'
-
-const MIN_DEPOSIT = 200000
 
 /**
  * Postgres raises its constraint messages in English only. Match them once and
@@ -63,6 +76,8 @@ export default function BookingScreen() {
   const [total, setTotal] = useState('')
   const [deposit, setDeposit] = useState('')
   const [pricingMode, setPricingMode] = useState<PricingMode>('percentage')
+  /** Starts at the villa's currency; the owner or makler may price in the other. */
+  const [currency, setCurrency] = useState<BookingCurrency>('uzs')
   const [ownerNet, setOwnerNet] = useState('')
   /** Same idea as totalEdited: stop pre-filling once it is typed by hand. */
   const [ownerNetEdited, setOwnerNetEdited] = useState(false)
@@ -94,6 +109,7 @@ export default function BookingScreen() {
         setCheckIn(startISO)
         setCheckOut(toISODate(addDays(parseISODate(startISO), 1)))
         setDeposit(String(villaRow.deposit_amount))
+        setCurrency(defaultBookingCurrency(villaRow.currency))
         if (userId) setAssignedMakler(await isAssignedMakler(villaRow.id, userId))
       } else {
         const bookingRow = await fetchBooking(bookingId!)
@@ -106,6 +122,7 @@ export default function BookingScreen() {
         setCheckOut(bookingRow.check_out)
         setTotal(String(bookingRow.total_price))
         setDeposit(String(bookingRow.deposit_amount))
+        setCurrency(bookingRow.currency)
         setPricingMode(bookingRow.pricing_mode)
         setClientType(bookingRow.client_type ?? '')
         setDepositPaid(bookingRow.deposit_paid)
@@ -137,18 +154,24 @@ export default function BookingScreen() {
     [villa, checkIn, checkOut],
   )
 
+  /**
+   * The villa's rates are in the villa's currency. Priced in the other one
+   * they mean nothing -- nothing is ever converted -- so they pre-fill nothing.
+   */
+  const ratesApply = Boolean(villa) && currency === defaultBookingCurrency(villa!.currency)
+
   // Pre-fill the total from the villa's rates while it is still untouched.
   useEffect(() => {
     if (totalEdited || !villa) return
-    setTotal(quote.nights > 0 ? String(quote.suggestedTotal) : '')
-  }, [quote.nights, quote.suggestedTotal, totalEdited, villa])
+    setTotal(ratesApply && quote.nights > 0 ? String(quote.suggestedTotal) : '')
+  }, [quote.nights, quote.suggestedTotal, totalEdited, villa, ratesApply])
 
   // The owner's net starts from the same rate card -- it is what the villa
   // would have earned at list price -- and the makler adjusts from there.
   useEffect(() => {
     if (ownerNetEdited || !villa || pricingMode !== 'owner_net') return
-    setOwnerNet(quote.nights > 0 ? String(quote.suggestedTotal) : '')
-  }, [quote.nights, quote.suggestedTotal, ownerNetEdited, villa, pricingMode])
+    setOwnerNet(ratesApply && quote.nights > 0 ? String(quote.suggestedTotal) : '')
+  }, [quote.nights, quote.suggestedTotal, ownerNetEdited, villa, pricingMode, ratesApply])
 
   const isOwner = Boolean(villa && user && villa.owner_id === user.id)
   /** An owner filing it themselves, rather than a makler with a standing link. */
@@ -225,6 +248,7 @@ export default function BookingScreen() {
         client_phone: ownerLogged ? null : clientPhone.trim() || null,
         check_in: checkIn,
         check_out: checkOut,
+        currency,
         total_price: Number(total) || 0,
         deposit_amount: depositValue,
         pricing_mode: pricingMode,
@@ -271,9 +295,11 @@ export default function BookingScreen() {
   if (!villa || !user) return null
 
   const nights = nightCount(checkIn, checkOut)
+  /** Everything priced on this booking formats in its own currency. */
+  const code = currencyCode(currency)
   /** A stay whose check-in has already passed: logged after the fact. */
   const isPastStay = Boolean(checkIn) && checkIn < toISODate(startOfToday())
-  const showResetTotal = !readOnly && quote.nights > 0 && Number(total) !== quote.suggestedTotal
+  const showResetTotal = !readOnly && ratesApply && quote.nights > 0 && Number(total) !== quote.suggestedTotal
 
   return (
     <>
@@ -364,6 +390,31 @@ export default function BookingScreen() {
 
         <p className="section-title">{t('booking.priceTitle')}</p>
 
+        {!readOnly && (
+          <div className="field" style={{ marginBottom: 12 }}>
+            <label id="currency-label">{t('booking.currencyLabel')}</label>
+            <div className="segmented" role="radiogroup" aria-labelledby="currency-label">
+              {(['uzs', 'usd'] as BookingCurrency[]).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  role="radio"
+                  aria-checked={currency === option}
+                  className={`segmented-item${currency === option ? ' segmented-item-active' : ''}`}
+                  onClick={() => setCurrency(option)}
+                >
+                  {currencyCode(option)}
+                </button>
+              ))}
+            </div>
+            {!ratesApply && (
+              <p className="field-hint">
+                {t('booking.ratesNotApplied', { villaCurrency: villa.currency, currency: code })}
+              </p>
+            )}
+          </div>
+        )}
+
         {!readOnly && !noMaklerCredited && (
           <div className="segmented" role="tablist" style={{ marginBottom: 12 }}>
             <button
@@ -384,7 +435,7 @@ export default function BookingScreen() {
         )}
 
         <div className="card card-pad">
-          {quote.nights > 0 && (
+          {ratesApply && quote.nights > 0 && (
             <dl className="summary" style={{ marginBottom: 10 }}>
               {quote.weekdayNights > 0 && (
                 <div className="summary-row muted">
@@ -413,7 +464,7 @@ export default function BookingScreen() {
 
           {pricingMode === 'owner_net' && !noMaklerCredited && (
             <div className="field">
-              <label htmlFor="owner-net">{t('booking.ownerNetLabel', { currency: villa.currency })}</label>
+              <label htmlFor="owner-net">{t('booking.ownerNetLabel', { currency: code })}</label>
               <input
                 id="owner-net"
                 type="number"
@@ -427,7 +478,7 @@ export default function BookingScreen() {
                   setOwnerNet(e.target.value)
                 }}
               />
-              {!readOnly && (
+              {!readOnly && ratesApply && (
                 <p className="field-hint">{t('booking.ownerNetHint')}</p>
               )}
             </div>
@@ -436,8 +487,8 @@ export default function BookingScreen() {
           <div className="field" style={{ marginBottom: 6 }}>
             <label htmlFor="total">
               {pricingMode === 'owner_net'
-                ? t('booking.chargedLabel', { currency: villa.currency })
-                : t('booking.totalLabel', { currency: villa.currency })}
+                ? t('booking.chargedLabel', { currency: code })
+                : t('booking.totalLabel', { currency: code })}
             </label>
             <input
               id="total"
@@ -462,10 +513,11 @@ export default function BookingScreen() {
                 setTotal(String(quote.suggestedTotal))
               }}
             >
-              {t('booking.resetTo', { amount: formatMoney(quote.suggestedTotal, villa.currency) })}
+              {t('booking.resetTo', { amount: formatMoney(quote.suggestedTotal, code) })}
             </button>
           )}
-          {!readOnly && (
+          {/* totalHint promises a pre-fill, which only happens when the rates apply. */}
+          {!readOnly && (pricingMode === 'owner_net' || ratesApply) && (
             <p className="field-hint">
               {pricingMode === 'owner_net' ? t('booking.chargedHint') : t('booking.totalHint')}
             </p>
@@ -479,19 +531,19 @@ export default function BookingScreen() {
               {split.managerCommission < 0
                 ? t('error.totalBelowOwnerNet')
                 : t('booking.yourCommission', {
-                    amount: formatMoney(split.managerCommission, villa.currency),
+                    amount: formatMoney(split.managerCommission, code),
                   })}
               {villa.platform_fee_rate > 0 && split.managerCommission >= 0 && (
                 <>
                   {' '}
-                  {t('booking.afterPlatformFee', { amount: formatMoney(split.platformFee, villa.currency) })}
+                  {t('booking.afterPlatformFee', { amount: formatMoney(split.platformFee, code) })}
                 </>
               )}
             </div>
           )}
 
           <div className="field" style={{ marginTop: 14, marginBottom: 0 }}>
-            <label htmlFor="deposit">{t('booking.depositLabel', { currency: villa.currency })}</label>
+            <label htmlFor="deposit">{t('booking.depositLabel', { currency: DEPOSIT_CURRENCY })}</label>
             <input
               id="deposit"
               type="number"
@@ -545,12 +597,12 @@ export default function BookingScreen() {
             <dl className="summary">
               <div className="summary-row total">
                 <dt>{t('booking.splitTotal')}</dt>
-                <dd>{formatMoney(Number(total) || 0, villa.currency)}</dd>
+                <dd>{formatMoney(Number(total) || 0, code)}</dd>
               </div>
               {(villa.platform_fee_rate > 0 || split.platformFee > 0) && (
                 <div className="summary-row">
                   <dt>{t('booking.splitPlatformFee', { rate: formatPercent(villa.platform_fee_rate) })}</dt>
-                  <dd>−{formatMoney(split.platformFee, villa.currency)}</dd>
+                  <dd>−{formatMoney(split.platformFee, code)}</dd>
                 </div>
               )}
               <div className="summary-row">
@@ -561,15 +613,15 @@ export default function BookingScreen() {
                       ? t('booking.splitSpread')
                       : t('booking.splitCommission', { rate: formatPercent(commissionRate) })}
                 </dt>
-                <dd>{formatMoney(split.managerCommission, villa.currency)}</dd>
+                <dd>{formatMoney(split.managerCommission, code)}</dd>
               </div>
               <div className="summary-row total">
                 <dt>{t('booking.splitOwnerPayout')}</dt>
-                <dd>{formatMoney(split.ownerPayout, villa.currency)}</dd>
+                <dd>{formatMoney(split.ownerPayout, code)}</dd>
               </div>
               <div className="summary-row muted">
                 <dt>{t('booking.splitDeposit')}</dt>
-                <dd>{formatMoney(Number(deposit) || 0, villa.currency)}</dd>
+                <dd>{formatMoney(Number(deposit) || 0, DEPOSIT_CURRENCY)}</dd>
               </div>
             </dl>
             {booking && (

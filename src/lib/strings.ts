@@ -216,12 +216,12 @@ const en = {
   'setup.locationPlaceholder': 'Chorvoq, Tashkent region',
   'setup.currencyLabel': 'Currency',
   'setup.capacityLabel': 'Capacity',
-  'setup.currencyHint': 'Currency is set per villa — mixing USD and UZS villas is fine.',
+  'setup.currencyHint': 'The default for new bookings. Each booking can still be priced in UZS or USD.',
   'setup.ratesTitle': 'Nightly rates',
   'setup.weekdayLabel': 'Weekday (Mon–Fri)',
   'setup.weekendLabel': 'Weekend (Sat–Sun)',
   'setup.ratesHint': 'Used to pre-fill booking totals. Maklers can still adjust a total by hand.',
-  'setup.depositLabel': 'Default deposit',
+  'setup.depositLabel': 'Default deposit (UZS)',
   'setup.depositHint': 'Pre-fills each booking and can be raised per booking. Minimum {min}.',
   'setup.commissionTitle': 'Commission',
   'setup.commissionLabel': 'Makler commission %',
@@ -371,6 +371,9 @@ const en = {
   'booking.pastDateNotice':
     'You can log a booking for this date if you had one — it’ll be included in your revenue totals.',
   'booking.untitled': 'Booking',
+  'booking.currencyLabel': 'Price currency',
+  'booking.ratesNotApplied':
+    'This villa’s rates are in {villaCurrency}, so nothing is pre-filled — enter the total in {currency}.',
   'booking.depositHintSimple':
     'Held against damages, refunded on checkout — separate from the price above. Minimum {min}.',
   'calendar.dayBookedNoName': '{date} — booked',
@@ -523,12 +526,12 @@ const ru: Record<StringKey, string> = {
   'setup.locationPlaceholder': 'Чорвок, Ташкентская область',
   'setup.currencyLabel': 'Валюта',
   'setup.capacityLabel': 'Вместимость',
-  'setup.currencyHint': 'Валюта задаётся для каждой виллы отдельно — можно совмещать USD и UZS.',
+  'setup.currencyHint': 'Используется по умолчанию для новых броней. Любую бронь всё равно можно указать в UZS или USD.',
   'setup.ratesTitle': 'Тарифы за ночь',
   'setup.weekdayLabel': 'Будни (Пн–Пт)',
   'setup.weekendLabel': 'Выходные (Сб–Вс)',
   'setup.ratesHint': 'Используются для подстановки суммы брони. Маклер всё равно может изменить её вручную.',
-  'setup.depositLabel': 'Залог по умолчанию',
+  'setup.depositLabel': 'Залог по умолчанию (UZS)',
   'setup.depositHint': 'Подставляется в каждую бронь, в отдельной броне сумму можно увеличить. Минимум {min}.',
   'setup.commissionTitle': 'Комиссия',
   'setup.commissionLabel': 'Комиссия маклера, %',
@@ -678,6 +681,9 @@ const ru: Record<StringKey, string> = {
   'booking.pastDateNotice':
     'Если на эту дату была бронь, её можно внести задним числом — она попадёт в вашу выручку.',
   'booking.untitled': 'Бронь',
+  'booking.currencyLabel': 'Валюта цены',
+  'booking.ratesNotApplied':
+    'Тарифы виллы указаны в {villaCurrency}, поэтому сумма не подставлена — введите итог в {currency}.',
   'booking.depositHintSimple':
     'Удерживается на случай ущерба и возвращается при выезде — отдельно от суммы выше. Минимум {min}.',
   'calendar.dayBookedNoName': '{date} — занято',
@@ -828,12 +834,12 @@ const uz: Record<StringKey, string> = {
   'setup.locationPlaceholder': 'Chorvoq, Toshkent viloyati',
   'setup.currencyLabel': 'Valyuta',
   'setup.capacityLabel': 'Sig‘imi',
-  'setup.currencyHint': 'Valyuta har bir villa uchun alohida belgilanadi — USD va UZS’ni aralashtirish mumkin.',
+  'setup.currencyHint': 'Yangi bronlar uchun standart valyuta. Har bir bronni baribir UZS yoki USD’da narxlash mumkin.',
   'setup.ratesTitle': 'Bir kechalik narxlar',
   'setup.weekdayLabel': 'Ish kunlari (Du–Ju)',
   'setup.weekendLabel': 'Dam olish kunlari (Sh–Ya)',
   'setup.ratesHint': 'Bron summasini oldindan to‘ldirish uchun ishlatiladi. Makler summani qo‘lda o‘zgartira oladi.',
-  'setup.depositLabel': 'Standart garov',
+  'setup.depositLabel': 'Standart garov (UZS)',
   'setup.depositHint': 'Har bir bronga qo‘yiladi va alohida bronda oshirilishi mumkin. Eng kami {min}.',
   'setup.commissionTitle': 'Komissiya',
   'setup.commissionLabel': 'Makler komissiyasi, %',
@@ -983,6 +989,9 @@ const uz: Record<StringKey, string> = {
   'booking.pastDateNotice':
     'Agar bu sanada bron bo‘lgan bo‘lsa, uni keyin ham qayd etishingiz mumkin — u tushumingizga qo‘shiladi.',
   'booking.untitled': 'Bron',
+  'booking.currencyLabel': 'Narx valyutasi',
+  'booking.ratesNotApplied':
+    'Villa narxlari {villaCurrency}da, shuning uchun summa to‘ldirilmadi — jamini {currency}da kiriting.',
   'booking.depositHintSimple':
     'Zarar uchun ushlab turiladi va ketishda qaytariladi — yuqoridagi summadan alohida. Eng kami {min}.',
   'calendar.dayBookedNoName': '{date} — band',

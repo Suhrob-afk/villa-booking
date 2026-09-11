@@ -13,7 +13,7 @@ import {
   type VillaInput,
 } from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { CURRENCIES } from '../lib/format'
+import { CURRENCIES, MIN_DEPOSIT } from '../lib/format'
 import { useI18n } from '../lib/i18n'
 import { confirmAction, notify } from '../lib/telegram'
 import { useBackButton } from '../lib/useBackButton'
@@ -31,9 +31,6 @@ interface FormState {
   capacity: string
   deposit_amount: string
 }
-
-/** Mirrors the villas deposit check in the database. */
-const MIN_DEPOSIT = 200000
 
 const BLANK: FormState = {
   name: '',
@@ -319,7 +316,7 @@ export default function VillaSetup() {
               id="deposit"
               type="number"
               inputMode="decimal"
-              min="200000"
+              min={MIN_DEPOSIT}
               step="1000"
               value={form.deposit_amount}
               onChange={(e) => set('deposit_amount', e.target.value)}

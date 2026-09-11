@@ -1,4 +1,6 @@
 export type BookingStatus = 'confirmed' | 'cancelled'
+/** What a booking's price is in. Deposits are always UZS regardless. */
+export type BookingCurrency = 'uzs' | 'usd'
 export type PricingMode = 'percentage' | 'owner_net'
 export type BlockReason = 'owner_use' | 'maintenance' | 'off_market'
 export type ClientType =
@@ -88,7 +90,14 @@ export interface Booking {
   client_phone: string | null
   check_in: string
   check_out: string
+  /**
+   * Chosen per booking; the villa's currency is only the default. total_price,
+   * platform_fee, manager_commission, owner_payout and owner_net_amount are
+   * all in this currency -- never converted, never summed across currencies.
+   */
+  currency: BookingCurrency
   total_price: number
+  /** Always UZS, whatever `currency` is. */
   deposit_amount: number
   pricing_mode: PricingMode
   client_type: ClientType | null

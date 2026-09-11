@@ -189,8 +189,18 @@ Components read it through `useI18n()`: `t('key', vars)` and `tn(base, count)`.
 
 ## Business rules
 
-**Pricing.** Currency and both rates live on the villa, never globally, because
-one owner routinely mixes USD and UZS properties. Weekend is Saturday and
+**Pricing.** Both nightly rates live on the villa. Currency lives on the
+**booking**: the villa's currency (UZS or USD) is only the default a new
+booking starts from, because owners routinely charge different clients in
+different currencies for the same villa on the same night — $100 to one group,
+1,000,000 UZS to another. Every money column on a booking (`total_price`,
+`platform_fee`, `manager_commission`, `owner_payout`, `owner_net_amount`) is in
+that booking's `currency`; nothing is ever converted. The villa's rates are in
+the villa's currency, so they only pre-fill a booking priced in that same
+currency. Any total — Breakdown, Commissions, the villa's month card — is
+grouped per currency and never summed across them, for one villa exactly as for
+several. **Deposits are the exception: always UZS**, whatever the price is in,
+with a minimum of 100,000 for both the villa default and each booking. Weekend is Saturday and
 Sunday; weekday is Monday–Friday. A booking's total is pre-filled by summing
 each night at its own rate, and the manager can then overwrite it (a "Reset
 to …" button restores the calculated figure).

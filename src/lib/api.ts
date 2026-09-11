@@ -3,6 +3,7 @@ import type {
   BlockedDate,
   BlockReason,
   Booking,
+  BookingCurrency,
   ClientType,
   Lang,
   PricingMode,
@@ -163,6 +164,7 @@ export interface BookingInput {
   client_phone: string | null
   check_in: string
   check_out: string
+  currency: BookingCurrency
   total_price: number
   deposit_amount: number
   pricing_mode: PricingMode
