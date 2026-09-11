@@ -7,7 +7,7 @@ import { bookingTitle, currencyCode, DEPOSIT_CURRENCY, formatMoney } from '../li
 import { useI18n } from '../lib/i18n'
 import { notify } from '../lib/telegram'
 import { useBackButton } from '../lib/useBackButton'
-import { Empty, ErrorState, Loading, TopBar } from '../components/ui'
+import { CombinedTotal, Empty, ErrorState, Loading, TopBar } from '../components/ui'
 
 type ViewAs = 'owner' | 'makler' | 'deposits'
 
@@ -178,6 +178,13 @@ function MaklerView({ rows }: { rows: CommissionRow[] }) {
         </div>
       ))}
 
+      <CombinedTotal
+        rows={[
+          { label: t('combined.unpaid'), entries: totals.map(([c, b]) => [c, b.unpaid]) },
+          { label: t('combined.paid'), entries: totals.map(([c, b]) => [c, b.paid]) },
+        ]}
+      />
+
       <p className="section-title">{t('commissions.bookings')}</p>
       <div className="list">
         {rows.map((row) => (
@@ -252,6 +259,13 @@ function OwnerView({
     return [...map.values()].sort((a, b) => b.owed - a.owed || a.maklerName.localeCompare(b.maklerName))
   }, [rows])
 
+  /** What is owed per currency, for the combined figure below the list. */
+  const owedByCurrency = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const total of totals) map.set(total.currency, (map.get(total.currency) ?? 0) + total.owed)
+    return [...map.entries()] as [string, number][]
+  }, [totals])
+
   /** The working list: everything still unpaid, soonest stay first. */
   const open = useMemo(
     () =>
@@ -290,6 +304,8 @@ function OwnerView({
           </div>
         ))}
       </div>
+
+      <CombinedTotal rows={[{ label: t('combined.owed'), entries: owedByCurrency }]} />
 
       <p className="section-title">{t('commissions.openCommission')}</p>
       {open.length === 0 ? (

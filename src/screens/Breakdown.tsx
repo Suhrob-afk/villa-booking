@@ -15,7 +15,7 @@ import { useI18n } from '../lib/i18n'
 import type { StringKey } from '../lib/strings'
 import { useBackButton } from '../lib/useBackButton'
 import type { Villa } from '../lib/types'
-import { Empty, ErrorState, Loading, TopBar } from '../components/ui'
+import { CombinedTotal, Empty, ErrorState, Loading, TopBar } from '../components/ui'
 
 type Scope = 'villa' | 'all'
 
@@ -219,6 +219,14 @@ export default function Breakdown() {
             </div>
           ))
         )}
+
+        {/* Under the per-currency cards, never replacing them. */}
+        <CombinedTotal
+          rows={[
+            { label: t('breakdown.payout'), entries: totals.map((x) => [x.currency, x.payout]) },
+            { label: t('breakdown.gross'), entries: totals.map((x) => [x.currency, x.gross]) },
+          ]}
+        />
 
         {included.length > 0 && (
           <>

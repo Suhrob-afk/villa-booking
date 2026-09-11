@@ -1,7 +1,10 @@
 import { Check, Globe, House, Wallet } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useAuth } from '../lib/auth'
+import { formatDateShort } from '../lib/dates'
+import { formatMoney } from '../lib/format'
 import { useI18n } from '../lib/i18n'
+import { combineToUsd, formatRate, useExchangeRate } from '../lib/rates'
 import { LANGS, LANGUAGE_NAMES } from '../lib/strings'
 import { notify } from '../lib/telegram'
 
@@ -219,5 +222,53 @@ export function ProfileHeader({ action }: { action?: ReactNode }) {
         </div>
       }
     />
+  )
+}
+
+/**
+ * A single USD figure across currencies, shown *underneath* the per-currency
+ * cards rather than instead of them: those stay the accurate ground truth and
+ * this is a convenience on top.
+ *
+ * It removes itself whenever it cannot be trusted -- no rate (the bank was
+ * unreachable), only one currency in play (nothing to combine), or an amount
+ * in some currency the rate does not cover. The rate and its date are always
+ * printed with the figure: totals are converted at today's rate rather than
+ * the rate of the month being viewed, so a past month's combined number moves
+ * a little day to day, and the label has to make that visible.
+ */
+export function CombinedTotal({ rows }: { rows: { label: string; entries: [string, number][] }[] }) {
+  const { lang, t } = useI18n()
+  const rate = useExchangeRate()
+  if (!rate) return null
+
+  const currencies = new Set(rows.flatMap((row) => row.entries.map(([currency]) => currency)))
+  if (currencies.size < 2) return null
+
+  const converted = rows.map((row) => ({ label: row.label, total: combineToUsd(row.entries, rate) }))
+  if (converted.some((row) => row.total === null)) return null
+
+  return (
+    <div className="card card-pad combined-total">
+      <p className="section-title" style={{ marginTop: 0 }}>
+        {t('combined.title')}
+      </p>
+      <dl className="summary">
+        {converted.map((row) => (
+          <div className="summary-row total" key={row.label}>
+            <dt>{row.label}</dt>
+            <dd>{t('combined.approx', { amount: formatMoney(row.total as number, 'USD') })}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="combined-rate">
+        {t(rate.stale ? 'combined.staleNote' : 'combined.rateNote', {
+          date: rate.rateDate ? formatDateShort(rate.rateDate, lang) : '—',
+          rate: formatRate(rate.rate),
+        })}
+        <br />
+        {t('combined.drift')}
+      </p>
+    </div>
   )
 }

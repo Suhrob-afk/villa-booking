@@ -372,6 +372,14 @@ const en = {
     'You can log a booking for this date if you had one — it’ll be included in your revenue totals.',
   'booking.untitled': 'Booking',
   'booking.currencyLabel': 'Price currency',
+  'combined.title': 'Combined total',
+  'combined.approx': '≈ {amount}',
+  'combined.rateNote': 'Today’s rate ({date}): 1 USD = {rate} UZS',
+  'combined.staleNote': 'Last known rate ({date}): 1 USD = {rate} UZS',
+  'combined.drift': 'Converted at today’s rate, so this total shifts as the rate moves.',
+  'combined.unpaid': 'Unpaid',
+  'combined.paid': 'Paid',
+  'combined.owed': 'Owed',
   'booking.ratesNotApplied':
     'This villa’s rates are in {villaCurrency}, so nothing is pre-filled — enter the total in {currency}.',
   'booking.depositHintSimple':
@@ -682,6 +690,14 @@ const ru: Record<StringKey, string> = {
     'Если на эту дату была бронь, её можно внести задним числом — она попадёт в вашу выручку.',
   'booking.untitled': 'Бронь',
   'booking.currencyLabel': 'Валюта цены',
+  'combined.title': 'Общий итог',
+  'combined.approx': '≈ {amount}',
+  'combined.rateNote': 'Курс на сегодня ({date}): 1 USD = {rate} UZS',
+  'combined.staleNote': 'Последний известный курс ({date}): 1 USD = {rate} UZS',
+  'combined.drift': 'Пересчитано по сегодняшнему курсу, поэтому итог меняется вместе с курсом.',
+  'combined.unpaid': 'Не выплачено',
+  'combined.paid': 'Выплачено',
+  'combined.owed': 'Долг',
   'booking.ratesNotApplied':
     'Тарифы виллы указаны в {villaCurrency}, поэтому сумма не подставлена — введите итог в {currency}.',
   'booking.depositHintSimple':
@@ -990,6 +1006,14 @@ const uz: Record<StringKey, string> = {
     'Agar bu sanada bron bo‘lgan bo‘lsa, uni keyin ham qayd etishingiz mumkin — u tushumingizga qo‘shiladi.',
   'booking.untitled': 'Bron',
   'booking.currencyLabel': 'Narx valyutasi',
+  'combined.title': 'Umumiy jami',
+  'combined.approx': '≈ {amount}',
+  'combined.rateNote': 'Bugungi kurs ({date}): 1 USD = {rate} UZS',
+  'combined.staleNote': 'Oxirgi ma’lum kurs ({date}): 1 USD = {rate} UZS',
+  'combined.drift': 'Bugungi kurs bo‘yicha hisoblangan, shuning uchun kurs o‘zgarishi bilan bu jami ham o‘zgaradi.',
+  'combined.unpaid': 'To‘lanmagan',
+  'combined.paid': 'To‘langan',
+  'combined.owed': 'Qarz',
   'booking.ratesNotApplied':
     'Villa narxlari {villaCurrency}da, shuning uchun summa to‘ldirilmadi — jamini {currency}da kiriting.',
   'booking.depositHintSimple':

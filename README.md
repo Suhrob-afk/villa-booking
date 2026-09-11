@@ -104,6 +104,7 @@ push` with the CLI) — `0001_init.sql`, then `0002_revoke_anon.sql`, then
 ```bash
 supabase functions deploy telegram-auth --no-verify-jwt
 supabase functions deploy link-manager --no-verify-jwt
+supabase functions deploy exchange-rate --no-verify-jwt
 ```
 
 `--no-verify-jwt` is required for `telegram-auth` because it's what *issues*
@@ -200,7 +201,24 @@ the villa's currency, so they only pre-fill a booking priced in that same
 currency. Any total — Breakdown, Commissions, the villa's month card — is
 grouped per currency and never summed across them, for one villa exactly as for
 several. **Deposits are the exception: always UZS**, whatever the price is in,
-with a minimum of 100,000 for both the villa default and each booking. Weekend is Saturday and
+with a minimum of 100,000 for both the villa default and each booking.
+
+**Combined total.** On top of the per-currency cards — which stay the accurate
+ground truth — Breakdown and Commissions show one approximate USD figure,
+converted at the Central Bank of Uzbekistan's published USD/UZS rate. The rate
+is cached in `public.exchange_rates`, one row per currency: the `exchange-rate`
+Edge Function reads through that cache and only calls `cbu.uz` when the stored
+rate is no longer from today (Tashkent time). If the bank is unreachable it
+serves the last rate it held, labelled as such; with nothing stored at all it
+returns 503 and the client simply drops the combined line rather than showing a
+wrong one. The combined figure also hides itself when only one currency is in
+play, or when some amount is in a currency the rate does not cover — a partial
+sum presented as a total would be worse than no total.
+
+Totals are converted at *today's* rate, not the rate of the period being
+viewed, so a past month's combined figure moves a little from day to day. That
+is why the rate and its date are always printed beside it: nothing is locked
+historically, and the label says so rather than hiding it. Weekend is Saturday and
 Sunday; weekday is Monday–Friday. A booking's total is pre-filled by summing
 each night at its own rate, and the manager can then overwrite it (a "Reset
 to …" button restores the calculated figure).

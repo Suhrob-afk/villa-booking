@@ -264,6 +264,16 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .archived-toggle:active { background: var(--surface-sunken); }
 
+/* The one-currency convenience figure under the per-currency cards. */
+.combined-total { margin-bottom: 12px; border-style: dashed; }
+
+.combined-rate {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-faint);
+}
+
 /* --------------------------------------------------------------- tabbar -- */
 
 .tabbar {
