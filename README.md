@@ -105,6 +105,7 @@ push` with the CLI) — `0001_init.sql`, then `0002_revoke_anon.sql`, then
 supabase functions deploy telegram-auth --no-verify-jwt
 supabase functions deploy link-manager --no-verify-jwt
 supabase functions deploy exchange-rate --no-verify-jwt
+supabase functions deploy admin-users --no-verify-jwt
 ```
 
 `--no-verify-jwt` is required for `telegram-auth` because it's what *issues*
@@ -162,6 +163,33 @@ For browser development, set `VITE_DEV_TELEGRAM_ID=999000001` in `.env` and
 unsigned `devTelegramId` and signs a token for it (still going through the
 same registration flow on first use). **Never enable this in production** —
 it is a complete authentication bypass.
+
+## Admin panel
+
+`/admin` is a separate page, not a screen of the Mini App. It opens in an
+ordinary browser tab, imports nothing from the app's auth flow, screens or
+navigation, and is split into its own bundle — on `/admin` the Mini App's code
+is never even loaded, so no Telegram bridge is touched and no router mounts.
+
+It asks for one password, then shows a read-only list of users (name, phone,
+oikoz id, role, language, joined). Nothing on it edits or deletes. The password
+is held in memory only: no `localStorage`, no cookie, so a reload asks again.
+
+The `admin-users` Edge Function is what enforces that password, and it is the
+*only* thing protecting the list — there is no Telegram initData and no
+Supabase JWT in play, which is why it queries with the service role. So:
+
+```bash
+supabase secrets set ADMIN_PANEL_PASSWORD='<long random value, used nowhere else>'
+```
+
+Until that secret exists the function returns 503 and queries nothing, so it is
+safe to deploy before setting it. An unset secret is never treated as an empty
+password. The comparison is timing-safe and a wrong password costs a fixed
+delay, but neither substitutes for length — this endpoint is public, and it
+returns every user's name and phone number.
+
+`telegram_id` is deliberately not among the columns it selects.
 
 ## Language
 
