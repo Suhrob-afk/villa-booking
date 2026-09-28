@@ -18,7 +18,7 @@
  *      and therefore safe to serve cache-first.
  */
 
-const CACHE = 'villa-crm-shell-v1'
+const CACHE = 'villa-crm-shell-v2'
 
 self.addEventListener('install', () => {
   // Take over promptly; there is no migration to stage.
@@ -61,17 +61,30 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
+  // Built assets are content-hashed, so a URL never changes meaning and
+  // cache-first is safe. Everything else same-origin is network-first: serving
+  // an unhashed path from cache would pin it to whatever was seen first, which
+  // is exactly what happened to Vite's /src/* modules in development.
+  const isHashedAsset = url.pathname.startsWith('/assets/')
+
   event.respondWith(
     (async () => {
-      const cached = await caches.match(request)
-      if (cached) return cached
-      const response = await fetch(request)
-      // Only store what is worth storing; opaque and error responses are not.
-      if (response.ok && response.type === 'basic') {
-        const cache = await caches.open(CACHE)
-        cache.put(request, response.clone())
+      if (isHashedAsset) {
+        const hit = await caches.match(request)
+        if (hit) return hit
       }
-      return response
+      try {
+        const response = await fetch(request)
+        if (response.ok && response.type === 'basic') {
+          const cache = await caches.open(CACHE)
+          cache.put(request, response.clone())
+        }
+        return response
+      } catch (err) {
+        const hit = await caches.match(request)
+        if (hit) return hit
+        throw err
+      }
     })(),
   )
 })

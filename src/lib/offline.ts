@@ -77,6 +77,9 @@ export async function withCache<T>(key: string, load: () => Promise<T>): Promise
 
 /** Registers the shell cache. Absent service-worker support, nothing changes. */
 export function registerServiceWorker(): void {
+  // Never in development: the dev server hands out unhashed module URLs, and a
+  // cache sitting in front of them serves yesterday's code.
+  if (!import.meta.env.PROD) return
   if (!('serviceWorker' in navigator)) return
   window.addEventListener('load', () => {
     void navigator.serviceWorker.register('/sw.js').catch(() => {
