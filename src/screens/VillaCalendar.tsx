@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import GearIcon from '../components/GearIcon'
 import MonthCalendar from '../components/MonthCalendar'
 import { createBlock, deleteBlock, fetchBlockedDates, fetchBookings, fetchVilla } from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -125,7 +126,7 @@ export default function VillaCalendar() {
               onClick={() => navigate(`/villa/${villa.id}/setup`)}
               aria-label={t('villa.setupAria')}
             >
-              ⚙
+              <GearIcon className="icon-button-glyph" />
             </button>
           ) : undefined
         }

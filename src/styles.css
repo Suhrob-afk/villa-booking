@@ -168,8 +168,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
   height: 50px;
   border-radius: 14px;
   border-color: var(--border-strong);
-  font-size: 21px;
-  line-height: 1;
+}
+
+/* 30 of the button's 50px: the gear fills the box instead of floating in a
+   ring of padding. Both are fixed pixels, like every other icon button here,
+   so the pair renders identically on a phone and on a desktop width. */
+.icon-button-glyph {
+  display: block;
+  width: 30px;
+  height: 30px;
 }
 
 /* Header action cluster: the language control plus anything role-specific. */
