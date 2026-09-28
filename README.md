@@ -211,10 +211,40 @@ live there too, so `formatRange()` and `monthLabel()` take a `Lang`.
 
 Components read it through `useI18n()`: `t('key', vars)` and `tn(base, count)`.
 
+**Cold start.** `users.language` is only known after sign-in returns, and the
+app used to render English for that whole window — a blink on desktop, long
+enough to read on Android. So the last language seen on this device is kept in
+`localStorage` and used immediately, falling back to the locale Telegram
+reports and only then to English. The signed-in user's value still wins the
+moment it arrives, and the provider no longer resets to English on a render
+where the user is not loaded yet.
+
 > **Money is still formatted `en-US`** (`$1,234.00`), in every language. That
 > is deliberate — changing separator and currency-symbol placement per locale
 > would restyle every financial figure in the app, which is a bigger decision
 > than translating the labels around them.
+
+## Offline
+
+View-only, on purpose. `public/sw.js` caches the app shell so it starts without
+a connection, and every read in `lib/api.ts` goes through a read-through cache
+that falls back to the last good response. A screen never loaded while online
+has no snapshot and still reports the error honestly rather than rendering
+emptiness.
+
+Writes are refused, never queued. `assertOnline()` fronts every mutation and
+throws a translated "connect to the internet" message, and the primary write
+controls disable themselves. Queuing offline edits would let two people who
+each booked the same villa while disconnected overwrite one another — losing
+that race silently is worse than making someone wait.
+
+A banner marks the data as not live, and both clear themselves on reconnect.
+
+Two limits worth knowing: the service worker needs HTTPS and a browser that
+supports one, so iOS WKWebView (Telegram on iPhone) will not start offline —
+though data caching still works once loaded. And `/version.json` is deliberately
+never cached, because the stale-build check is what gets a new deploy onto a
+long-lived Telegram WebView.
 
 ## Business rules
 
@@ -293,6 +323,17 @@ Archiving is just `villas.archived_at`: the rows do not move, so an archived
 villa still counts everywhere revenue is aggregated, including Breakdown's
 "all my villas". It leaves the active list only, and Home's "Archived villas"
 disclosure restores it.
+
+**Money entry.** Every currency field groups digits as you type (`1000000`
+shows as `1,000,000`) while storing and submitting a plain number — the data
+model is untouched. Each carries five round quick-pick chips, scaled to the
+field's currency (UZS 500,000–5,000,000; USD 50–500), with deposits starting at
+the 100,000 minimum. These are text inputs rather than `type="number"`, which
+refuses to render separators.
+
+**Client phone.** Optional on every booking, and on a saved one it doubles as a
+`tel:` link. Whatever was typed is what gets dialled — no country code is
+inferred, since guessing one wrong is worse than leaving it as entered.
 
 **Calendar.** Month grid, one circle per day. Light blue = available, solid
 dark blue = booked, with consecutive booked days bridged into a single strip.

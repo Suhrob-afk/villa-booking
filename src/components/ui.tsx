@@ -4,6 +4,7 @@ import { useAuth } from '../lib/auth'
 import { formatDateShort } from '../lib/dates'
 import { formatMoney } from '../lib/format'
 import { useI18n } from '../lib/i18n'
+import { useOnline } from '../lib/offline'
 import { combineToUsd, formatRate, useExchangeRate } from '../lib/rates'
 import { LANGS, LANGUAGE_NAMES } from '../lib/strings'
 import { notify } from '../lib/telegram'
@@ -109,6 +110,7 @@ export function Alert({ kind = 'error', children }: { kind?: 'error' | 'info'; c
  */
 function LanguageControl() {
   const { lang, setLang, t } = useI18n()
+  const online = useOnline()
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -157,7 +159,7 @@ function LanguageControl() {
               role="menuitemradio"
               aria-checked={lang === code}
               lang={code}
-              disabled={busy}
+              disabled={busy || !online}
               onClick={async () => {
                 if (code === lang) return setOpen(false)
                 setBusy(true)
@@ -271,4 +273,22 @@ export function CombinedTotal({ rows }: { rows: { label: string; entries: [strin
       </p>
     </div>
   )
+}
+
+/**
+ * Says plainly that what is on screen is not live. It also pushes the layout
+ * down by its own height (via a class on <body>), so it can stay pinned
+ * without covering the sticky top bar underneath it.
+ */
+export function OfflineBanner() {
+  const { t } = useI18n()
+  const online = useOnline()
+
+  useEffect(() => {
+    document.body.classList.toggle('is-offline', !online)
+    return () => document.body.classList.remove('is-offline')
+  }, [online])
+
+  if (online) return null
+  return <div className="offline-banner">{t('offline.banner')}</div>
 }

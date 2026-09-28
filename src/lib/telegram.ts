@@ -2,7 +2,9 @@
 
 interface TelegramWebApp {
   initData: string
-  initDataUnsafe?: { user?: { id: number; first_name?: string; last_name?: string; username?: string } }
+  initDataUnsafe?: {
+    user?: { id: number; first_name?: string; last_name?: string; username?: string; language_code?: string }
+  }
   colorScheme?: 'light' | 'dark'
   ready(): void
   expand(): void
@@ -39,6 +41,16 @@ export function initTelegram(): void {
 
 export function isTelegramClient(): boolean {
   return Boolean(tg()?.initData)
+}
+
+/**
+ * The locale Telegram reports for this client, e.g. "ru" or "uz". Only ever a
+ * first guess for somebody this device has never signed in as -- the language
+ * saved on the user row outranks it the moment that row arrives.
+ */
+export function telegramLanguageCode(): string | null {
+  const code = tg()?.initDataUnsafe?.user?.language_code
+  return typeof code === 'string' && code ? code.slice(0, 2).toLowerCase() : null
 }
 
 export function colorScheme(): 'light' | 'dark' {

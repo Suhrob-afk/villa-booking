@@ -1,3 +1,4 @@
+import { assertOnline, withCache } from './offline'
 import { supabase } from './supabase'
 import type {
   BlockedDate,
@@ -17,6 +18,15 @@ function unwrap<T>({ data, error }: { data: T | null; error: { message: string }
   return data as T
 }
 
+/**
+ * Read-through cache. The network when it answers, the last good snapshot when
+ * it does not, so a disconnected app renders what it last knew. Writes get
+ * assertOnline() instead -- they are refused, never queued.
+ */
+async function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
+  return (await withCache(key, load)).data
+}
+
 // -------------------------------------------------------------------- me --
 
 /**
@@ -25,6 +35,7 @@ function unwrap<T>({ data, error }: { data: T | null; error: { message: string }
  * an id other than the signed-in user's simply matches nothing.
  */
 export async function updateOwnLanguage(userId: string, language: Lang): Promise<void> {
+  assertOnline()
   const { error } = await supabase.from('users').update({ language }).eq('id', userId)
   if (error) throw new Error(error.message)
 }
@@ -38,7 +49,7 @@ export async function updateOwnLanguage(userId: string, language: Lang): Promise
  * to show; a currently-managed vs. formerly-managed villa both read as
  * "managed" here, since the difference only matters inside the villa itself.
  */
-export async function fetchVillas(userId: string): Promise<VillaWithAccess[]> {
+async function loadVillas(userId: string): Promise<VillaWithAccess[]> {
   const villas = await supabase
     .from('villas')
     .select('*')
@@ -51,7 +62,7 @@ export async function fetchVillas(userId: string): Promise<VillaWithAccess[]> {
   }))
 }
 
-export async function fetchVilla(villaId: string): Promise<Villa> {
+async function loadVilla(villaId: string): Promise<Villa> {
   return supabase.from('villas').select('*').eq('id', villaId).single().then(unwrap<Villa>)
 }
 
@@ -59,10 +70,12 @@ export async function fetchVilla(villaId: string): Promise<Villa> {
 export type VillaInput = Omit<Villa, 'id' | 'created_at' | 'owner_id' | 'villa_code' | 'archived_at'>
 
 export async function createVilla(ownerId: string, input: VillaInput): Promise<Villa> {
+  assertOnline()
   return supabase.from('villas').insert({ ...input, owner_id: ownerId }).select('*').single().then(unwrap<Villa>)
 }
 
 export async function updateVilla(villaId: string, input: VillaInput): Promise<Villa> {
+  assertOnline()
   return supabase.from('villas').update(input).eq('id', villaId).select('*').single().then(unwrap<Villa>)
 }
 
@@ -71,12 +84,13 @@ export async function updateVilla(villaId: string, input: VillaInput): Promise<V
  * the rest, because villa_id cascades and would take the history with it.
  */
 export async function deleteVilla(villaId: string): Promise<void> {
+  assertOnline()
   const { error } = await supabase.from('villas').delete().eq('id', villaId)
   if (error) throw new Error(error.message)
 }
 
 /** Archived villas leave the active list; nothing about their data changes. */
-export async function fetchArchivedVillas(): Promise<Villa[]> {
+async function loadArchivedVillas(): Promise<Villa[]> {
   return supabase
     .from('villas')
     .select('*')
@@ -86,6 +100,7 @@ export async function fetchArchivedVillas(): Promise<Villa[]> {
 }
 
 export async function setVillaArchived(villaId: string, archived: boolean): Promise<void> {
+  assertOnline()
   const { error } = await supabase
     .from('villas')
     .update({ archived_at: archived ? new Date().toISOString() : null })
@@ -97,7 +112,7 @@ export async function setVillaArchived(villaId: string, archived: boolean): Prom
  * How much history a villa has, cancellations included -- it decides whether
  * removal means delete or archive. Counted, never fetched.
  */
-export async function countVillaBookings(villaId: string): Promise<number> {
+async function loadVillaBookingCount(villaId: string): Promise<number> {
   const { count, error } = await supabase
     .from('bookings')
     .select('id', { count: 'exact', head: true })
@@ -111,7 +126,7 @@ export async function countVillaBookings(villaId: string): Promise<number> {
 /** Maklers are linked by oikoz_id; telegram_id stays available for support lookups. */
 const PUBLIC_USER_COLUMNS = 'id,telegram_id,oikoz_id,name,full_name,phone,language,is_owner,is_makler,created_at'
 
-export async function fetchVillaMaklers(villaId: string): Promise<User[]> {
+async function loadVillaMaklers(villaId: string): Promise<User[]> {
   const rows = await supabase
     .from('villa_managers')
     .select(`manager:users!villa_managers_manager_id_fkey(${PUBLIC_USER_COLUMNS})`)
@@ -127,12 +142,14 @@ export async function fetchVillaMaklers(villaId: string): Promise<User[]> {
  * makler. It also tolerates "2", "0002" or "OIKOZ_ID0002" for oikoz_id0002.
  */
 export async function linkMakler(villaId: string, oikozId: string): Promise<User> {
+  assertOnline()
   return supabase
     .rpc('link_manager_by_oikoz_id', { p_villa_id: villaId, p_oikoz_id: oikozId })
     .then(unwrap<User>)
 }
 
 export async function unlinkMakler(villaId: string, managerId: string): Promise<void> {
+  assertOnline()
   const { error } = await supabase
     .from('villa_managers')
     .delete()
@@ -143,7 +160,7 @@ export async function unlinkMakler(villaId: string, managerId: string): Promise<
 
 // --------------------------------------------------------------- bookings --
 
-export async function fetchBookings(villaId: string): Promise<Booking[]> {
+async function loadBookings(villaId: string): Promise<Booking[]> {
   return supabase
     .from('bookings')
     .select('*')
@@ -152,7 +169,7 @@ export async function fetchBookings(villaId: string): Promise<Booking[]> {
     .then(unwrap<Booking[]>)
 }
 
-export async function fetchBooking(bookingId: string): Promise<Booking> {
+async function loadBooking(bookingId: string): Promise<Booking> {
   return supabase.from('bookings').select('*').eq('id', bookingId).single().then(unwrap<Booking>)
 }
 
@@ -175,6 +192,7 @@ export interface BookingInput {
 }
 
 export async function createBooking(input: BookingInput): Promise<Booking> {
+  assertOnline()
   return supabase.from('bookings').insert(input).select('*').single().then(unwrap<Booking>)
 }
 
@@ -182,15 +200,18 @@ export async function updateBooking(
   bookingId: string,
   input: Omit<BookingInput, 'villa_id'>,
 ): Promise<Booking> {
+  assertOnline()
   return supabase.from('bookings').update(input).eq('id', bookingId).select('*').single().then(unwrap<Booking>)
 }
 
 export async function setBookingStatus(bookingId: string, status: 'confirmed' | 'cancelled'): Promise<Booking> {
+  assertOnline()
   return supabase.from('bookings').update({ status }).eq('id', bookingId).select('*').single().then(unwrap<Booking>)
 }
 
 /** Owners mark the client's deposit as received (or not) after the fact. */
 export async function setDepositPaid(bookingId: string, deposit_paid: boolean): Promise<Booking> {
+  assertOnline()
   return supabase
     .from('bookings')
     .update({ deposit_paid })
@@ -218,7 +239,7 @@ export async function findMaklerForVilla(
 }
 
 /** Is this user a standing makler on the villa, as opposed to its owner? */
-export async function isAssignedMakler(villaId: string, userId: string): Promise<boolean> {
+async function loadIsAssignedMakler(villaId: string, userId: string): Promise<boolean> {
   const rows = await supabase
     .from('villa_managers')
     .select('villa_id')
@@ -229,6 +250,7 @@ export async function isAssignedMakler(villaId: string, userId: string): Promise
 }
 
 export async function setCommissionStatus(bookingId: string, commission_status: 'paid' | 'unpaid'): Promise<Booking> {
+  assertOnline()
   return supabase
     .from('bookings')
     .update({ commission_status })
@@ -248,7 +270,7 @@ export interface BookingWithVilla extends Booking {
  * the breakdown screen can filter to one villa client-side without a second
  * round trip.
  */
-export async function fetchConfirmedBookingsWithVilla(): Promise<BookingWithVilla[]> {
+async function loadConfirmedBookingsWithVilla(): Promise<BookingWithVilla[]> {
   return supabase
     .from('bookings')
     .select('*, villa:villas!bookings_villa_id_fkey(id,name,currency)')
@@ -260,7 +282,7 @@ export async function fetchConfirmedBookingsWithVilla(): Promise<BookingWithVill
 
 // -------------------------------------------------------------- blocks --
 
-export async function fetchBlockedDates(villaId: string): Promise<BlockedDate[]> {
+async function loadBlockedDates(villaId: string): Promise<BlockedDate[]> {
   return supabase
     .from('blocked_dates')
     .select('*')
@@ -277,10 +299,12 @@ export async function createBlock(input: {
   reason: BlockReason
   created_by: string
 }): Promise<BlockedDate> {
+  assertOnline()
   return supabase.from('blocked_dates').insert(input).select('*').single().then(unwrap<BlockedDate>)
 }
 
 export async function deleteBlock(blockId: string): Promise<void> {
+  assertOnline()
   const { error } = await supabase.from('blocked_dates').delete().eq('id', blockId)
   if (error) throw new Error(error.message)
 }
@@ -298,7 +322,7 @@ export interface CommissionRow extends Booking {
  * villas they've since been unassigned from), an owner gets every booking
  * on the villas they own.
  */
-export async function fetchCommissionRows(): Promise<CommissionRow[]> {
+async function loadCommissionRows(): Promise<CommissionRow[]> {
   return supabase
     .from('bookings')
     .select('*, villa:villas!bookings_villa_id_fkey(id,name,currency,owner_id), manager:users!bookings_manager_id_fkey(id,name,oikoz_id)')
@@ -306,4 +330,52 @@ export async function fetchCommissionRows(): Promise<CommissionRow[]> {
     .order('check_in', { ascending: false })
     .returns<CommissionRow[]>()
     .then(unwrap<CommissionRow[]>)
+}
+
+// ------------------------------------------------- cached read surface --
+// Every screen reads through these; the load* functions above are the network
+// half, and these are what survives losing it.
+
+export function fetchVillas(userId: string) {
+  return cached(`villas:${userId}`, () => loadVillas(userId))
+}
+
+export function fetchVilla(villaId: string) {
+  return cached(`villa:${villaId}`, () => loadVilla(villaId))
+}
+
+export function fetchArchivedVillas() {
+  return cached('villas:archived', () => loadArchivedVillas())
+}
+
+export function countVillaBookings(villaId: string) {
+  return cached(`bookingcount:${villaId}`, () => loadVillaBookingCount(villaId))
+}
+
+export function fetchVillaMaklers(villaId: string) {
+  return cached(`maklers:${villaId}`, () => loadVillaMaklers(villaId))
+}
+
+export function fetchBookings(villaId: string) {
+  return cached(`bookings:${villaId}`, () => loadBookings(villaId))
+}
+
+export function fetchBooking(bookingId: string) {
+  return cached(`booking:${bookingId}`, () => loadBooking(bookingId))
+}
+
+export function isAssignedMakler(villaId: string, userId: string) {
+  return cached(`assigned:${villaId}:${userId}`, () => loadIsAssignedMakler(villaId, userId))
+}
+
+export function fetchConfirmedBookingsWithVilla() {
+  return cached('bookings:confirmed', () => loadConfirmedBookingsWithVilla())
+}
+
+export function fetchBlockedDates(villaId: string) {
+  return cached(`blocks:${villaId}`, () => loadBlockedDates(villaId))
+}
+
+export function fetchCommissionRows() {
+  return cached('commissions', () => loadCommissionRows())
 }

@@ -5,6 +5,7 @@ import { useAuth } from '../lib/auth'
 import { formatRange } from '../lib/dates'
 import { bookingTitle, currencyCode, DEPOSIT_CURRENCY, formatMoney } from '../lib/format'
 import { useI18n } from '../lib/i18n'
+import { useOnline } from '../lib/offline'
 import { notify } from '../lib/telegram'
 import { useBackButton } from '../lib/useBackButton'
 import { CombinedTotal, Empty, ErrorState, Loading, TopBar } from '../components/ui'
@@ -230,6 +231,7 @@ function OwnerView({
   onTogglePaid: (row: CommissionRow) => void
 }) {
   const { lang, t } = useI18n()
+  const online = useOnline()
   /**
    * Only bookings a makler was credited on can owe commission. An owner's own
    * booking has nobody to pay, so it never belongs in "open" or "settled".
@@ -326,7 +328,7 @@ function OwnerView({
               <button
                 type="button"
                 className="toggle"
-                disabled={busyId === row.id}
+                disabled={busyId === row.id || !online}
                 onClick={() => onTogglePaid(row)}
               >
                 {t('commissions.markPaid')}
@@ -351,7 +353,7 @@ function OwnerView({
                 <button
                   type="button"
                   className="toggle paid"
-                  disabled={busyId === row.id}
+                  disabled={busyId === row.id || !online}
                   onClick={() => onTogglePaid(row)}
                 >
                   ✓ {formatMoney(row.manager_commission, currencyCode(row.currency))}
@@ -383,6 +385,7 @@ function PendingDeposits({
   onMarkPaid: (row: CommissionRow) => void
 }) {
   const { lang, t } = useI18n()
+  const online = useOnline()
   /** Deposits are always UZS, so unlike commission there is a single total. */
   const outstanding = useMemo(() => rows.reduce((sum, row) => sum + row.deposit_amount, 0), [rows])
 
@@ -422,7 +425,7 @@ function PendingDeposits({
               <button
                 type="button"
                 className="toggle"
-                disabled={busyId === row.id}
+                disabled={busyId === row.id || !online}
                 onClick={() => onMarkPaid(row)}
               >
                 {t('commissions.markReceived')}

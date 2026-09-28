@@ -1,8 +1,54 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { updateOwnLanguage } from './api'
 import { useAuth } from './auth'
-import { isLang, plural as pluralize, translate, type PluralBase, type StringKey, type Vars } from './strings'
+import {
+  isLang,
+  plural as pluralize,
+  setActiveLang,
+  translate,
+  type PluralBase,
+  type StringKey,
+  type Vars,
+} from './strings'
+import { telegramLanguageCode } from './telegram'
 import type { Lang } from './types'
+
+/** Last language this device saw, so a cold start does not have to guess. */
+const STORAGE_KEY = 'oikoz.lang'
+
+function readStoredLang(): Lang | null {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    return isLang(stored) ? stored : null
+  } catch {
+    // Private mode, or storage disabled: fall through to the other sources.
+    return null
+  }
+}
+
+function storeLang(lang: Lang): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, lang)
+  } catch {
+    // Not being able to remember is survivable; crashing over it is not.
+  }
+}
+
+/**
+ * What to show before the signed-in user's own language is known.
+ *
+ * Sign-in is a network round trip, and until it returns there is no users row
+ * to read `language` from. Defaulting to English for that whole window is what
+ * made the app look English on slower devices -- notably Android, where the
+ * gap is long enough to read rather than blink past. So: what this device last
+ * saw, else the locale Telegram itself reports, and only then English.
+ */
+function initialLang(): Lang {
+  const stored = readStoredLang()
+  if (stored) return stored
+  const fromTelegram = telegramLanguageCode()
+  return isLang(fromTelegram) ? fromTelegram : 'en'
+}
 
 interface I18n {
   lang: Lang
@@ -26,26 +72,38 @@ const I18nContext = createContext<I18n | null>(null)
  */
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const { user, refreshUser } = useAuth()
-  const userLang = isLang(user?.language) ? user!.language : 'en'
-  const [lang, setLangState] = useState<Lang>(userLang)
+  const [lang, setLangState] = useState<Lang>(initialLang)
+  const serverLang = user?.language
 
-  // Adopt whatever the server says on sign-in and on every foreground re-auth.
-  // A switch made here has already written the same value onto the user row
-  // below, so this never fights an in-app change.
+  // The signed-in user's language wins the moment it is known, on sign-in and
+  // on every foreground re-auth -- that is what carries a change made with the
+  // bot's /language across. Until then the UI keeps whatever it opened with
+  // rather than being forced back to a default: note this no longer falls back
+  // to 'en' when `user` is null, which previously reset the language on any
+  // render where the user was not loaded yet.
   useEffect(() => {
-    setLangState(userLang)
-  }, [userLang])
+    if (!isLang(serverLang)) return
+    setLangState(serverLang)
+    storeLang(serverLang)
+  }, [serverLang])
+
+  // Keep the non-React mirror in step, for messages thrown outside components.
+  useEffect(() => {
+    setActiveLang(lang)
+  }, [lang])
 
   const setLang = useCallback(
     async (next: Lang) => {
       if (!user) return
       const previous = lang
       setLangState(next) // optimistic: the UI flips before the round trip
+      storeLang(next)
       try {
         await updateOwnLanguage(user.id, next)
         refreshUser({ ...user, language: next })
       } catch (err) {
         setLangState(previous)
+        storeLang(previous)
         throw err
       }
     },

@@ -246,6 +246,10 @@ const en = {
   'booking.clientNamePlaceholder': 'Full name',
   'booking.phoneLabel': 'Phone',
   'booking.phonePlaceholder': '+998 90 000 00 00',
+  'offline.banner': 'Offline — showing last synced data',
+  'offline.readOnly': 'Connect to the internet to make changes.',
+  'booking.callClient': 'Call {phone}',
+  'booking.phoneOptional': 'Optional — so you can call them from here later.',
   'booking.checkIn': 'Check-in',
   'booking.checkOut': 'Check-out',
   'booking.clientTypeLabel': 'Client type',
@@ -564,6 +568,10 @@ const ru: Record<StringKey, string> = {
   'booking.clientNamePlaceholder': 'Имя и фамилия',
   'booking.phoneLabel': 'Телефон',
   'booking.phonePlaceholder': '+998 90 000 00 00',
+  'offline.banner': 'Нет сети — показаны последние данные',
+  'offline.readOnly': 'Подключитесь к интернету, чтобы вносить изменения.',
+  'booking.callClient': 'Позвонить {phone}',
+  'booking.phoneOptional': 'Необязательно — чтобы позвонить клиенту прямо отсюда.',
   'booking.checkIn': 'Заезд',
   'booking.checkOut': 'Выезд',
   'booking.clientTypeLabel': 'Тип клиента',
@@ -880,6 +888,10 @@ const uz: Record<StringKey, string> = {
   'booking.clientNamePlaceholder': 'Ism va familiya',
   'booking.phoneLabel': 'Telefon',
   'booking.phonePlaceholder': '+998 90 000 00 00',
+  'offline.banner': 'Internet yo‘q — oxirgi saqlangan ma’lumotlar',
+  'offline.readOnly': 'O‘zgartirish kiritish uchun internetga ulaning.',
+  'booking.callClient': '{phone} ga qo‘ng‘iroq qilish',
+  'booking.phoneOptional': 'Ixtiyoriy — keyin shu yerdan qo‘ng‘iroq qilishingiz uchun.',
   'booking.checkIn': 'Kelish',
   'booking.checkOut': 'Ketish',
   'booking.clientTypeLabel': 'Mijoz turi',
@@ -1047,6 +1059,20 @@ function interpolate(template: string, vars?: Vars): string {
   return template.replace(/\{(\w+)\}/g, (match, key: string) =>
     key in vars ? String(vars[key]) : match,
   )
+}
+
+/**
+ * The language currently on screen, mirrored out of React so code that has no
+ * hook access -- the offline write guard -- can still speak it.
+ */
+let activeLang: Lang = 'en'
+
+export function setActiveLang(lang: Lang): void {
+  activeLang = lang
+}
+
+export function currentLang(): Lang {
+  return activeLang
 }
 
 /** Falls back to English for a key a translator has not filled in yet. */

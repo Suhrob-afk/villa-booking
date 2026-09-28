@@ -13,11 +13,13 @@ import {
   type VillaInput,
 } from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { CURRENCIES, MIN_DEPOSIT } from '../lib/format'
+import { CURRENCIES, DEPOSIT_CURRENCY, DEPOSIT_SUGGESTIONS, MIN_DEPOSIT } from '../lib/format'
 import { useI18n } from '../lib/i18n'
+import { useOnline } from '../lib/offline'
 import { confirmAction, notify } from '../lib/telegram'
 import { useBackButton } from '../lib/useBackButton'
 import type { User } from '../lib/types'
+import MoneyInput from '../components/MoneyInput'
 import { Alert, ErrorState, Loading, TopBar } from '../components/ui'
 
 interface FormState {
@@ -64,6 +66,7 @@ export default function VillaSetup() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const { t, tn } = useI18n()
+  const online = useOnline()
   const isNew = !villaId
 
   const [form, setForm] = useState<FormState>(BLANK)
@@ -285,26 +288,20 @@ export default function VillaSetup() {
           <div className="field-row">
             <div className="field">
               <label htmlFor="weekday">{t('setup.weekdayLabel')}</label>
-              <input
+              <MoneyInput
                 id="weekday"
-                type="number"
-                inputMode="decimal"
-                min="0"
+                currency={form.currency}
                 value={form.weekday_price}
-                onChange={(e) => set('weekday_price', e.target.value)}
-                placeholder="0"
+                onChange={(next) => set('weekday_price', next)}
               />
             </div>
             <div className="field">
               <label htmlFor="weekend">{t('setup.weekendLabel')}</label>
-              <input
+              <MoneyInput
                 id="weekend"
-                type="number"
-                inputMode="decimal"
-                min="0"
+                currency={form.currency}
                 value={form.weekend_price}
-                onChange={(e) => set('weekend_price', e.target.value)}
-                placeholder="0"
+                onChange={(next) => set('weekend_price', next)}
               />
             </div>
           </div>
@@ -312,14 +309,12 @@ export default function VillaSetup() {
 
           <div className="field" style={{ marginTop: 14, marginBottom: 0 }}>
             <label htmlFor="deposit">{t('setup.depositLabel')}</label>
-            <input
+            <MoneyInput
               id="deposit"
-              type="number"
-              inputMode="decimal"
-              min={MIN_DEPOSIT}
-              step="1000"
+              currency={DEPOSIT_CURRENCY}
+              suggestions={DEPOSIT_SUGGESTIONS}
               value={form.deposit_amount}
-              onChange={(e) => set('deposit_amount', e.target.value)}
+              onChange={(next) => set('deposit_amount', next)}
             />
             <p className="field-hint">{t('setup.depositHint', { min: MIN_DEPOSIT.toLocaleString('en-US') })}</p>
           </div>
@@ -403,7 +398,7 @@ export default function VillaSetup() {
         )}
 
         <div className="button-row">
-          <button type="button" className="button" disabled={saving} onClick={() => void save()}>
+          <button type="button" className="button" disabled={saving || !online} onClick={() => void save()}>
             {saving ? t('common.saving') : isNew ? t('setup.createVilla') : t('common.saveChanges')}
           </button>
         </div>

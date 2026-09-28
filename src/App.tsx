@@ -3,7 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from
 import { AuthProvider, useAuth } from './lib/auth'
 import { LanguageProvider, useI18n } from './lib/i18n'
 import { colorScheme } from './lib/telegram'
-import { ErrorState, Loading, TabBar, type Tab } from './components/ui'
+import { ErrorState, Loading, OfflineBanner, TabBar, type Tab } from './components/ui'
 import BookingScreen from './screens/BookingScreen'
 import Breakdown from './screens/Breakdown'
 import Commissions from './screens/Commissions'
@@ -56,6 +56,7 @@ export default function App() {
       <LanguageProvider>
         <BrowserRouter>
           <div className="app">
+            <OfflineBanner />
             <Shell />
           </div>
         </BrowserRouter>

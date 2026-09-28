@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   createBooking,
@@ -16,11 +16,13 @@ import {
   currencyCode,
   defaultBookingCurrency,
   DEPOSIT_CURRENCY,
+  DEPOSIT_SUGGESTIONS,
   formatMoney,
   formatPercent,
   MIN_DEPOSIT,
 } from '../lib/format'
 import { useI18n } from '../lib/i18n'
+import { useOnline } from '../lib/offline'
 import { quoteRange, splitTotal } from '../lib/pricing'
 import type { StringKey } from '../lib/strings'
 import { confirmAction, notify } from '../lib/telegram'
@@ -33,6 +35,7 @@ import {
   type PricingMode,
   type Villa,
 } from '../lib/types'
+import MoneyInput from '../components/MoneyInput'
 import { Alert, ErrorState, Loading, TopBar } from '../components/ui'
 
 /**
@@ -58,6 +61,7 @@ export default function BookingScreen() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const { lang, t, tn } = useI18n()
+  const online = useOnline()
   const userId = user?.id
   const isNew = !bookingId
 
@@ -245,7 +249,7 @@ export default function BookingScreen() {
         // no client identity to store, so it goes in empty and the lists fall
         // back to a label (see bookingTitle).
         client_name: ownerLogged ? '' : clientName.trim(),
-        client_phone: ownerLogged ? null : clientPhone.trim() || null,
+        client_phone: clientPhone.trim() || null,
         check_in: checkIn,
         check_out: checkOut,
         currency,
@@ -327,18 +331,12 @@ export default function BookingScreen() {
                   placeholder={t('booking.clientNamePlaceholder')}
                 />
               </div>
-              <div className="field">
-                <label htmlFor="phone">{t('booking.phoneLabel')}</label>
-                <input
-                  id="phone"
-                  type="tel"
-                  inputMode="tel"
-                  value={clientPhone}
-                  disabled={readOnly}
-                  onChange={(e) => setClientPhone(e.target.value)}
-                  placeholder={t('booking.phonePlaceholder')}
-                />
-              </div>
+              <PhoneField
+                value={clientPhone}
+                onChange={setClientPhone}
+                disabled={readOnly}
+                showCall={!isNew}
+              />
             </>
           )}
           <div className="field-row">
@@ -370,7 +368,7 @@ export default function BookingScreen() {
           </div>
           {nights > 0 && <p className="field-hint">{formatRange(checkIn, checkOut, lang)}</p>}
 
-          <div className="field" style={{ marginTop: 14, marginBottom: 0 }}>
+          <div className="field" style={ownerLogged ? { marginTop: 14 } : { marginTop: 14, marginBottom: 0 }}>
             <label htmlFor="client-type">{t('booking.clientTypeLabel')}</label>
             <select
               id="client-type"
@@ -386,6 +384,16 @@ export default function BookingScreen() {
               ))}
             </select>
           </div>
+
+          {ownerLogged && (
+            <PhoneField
+              value={clientPhone}
+              onChange={setClientPhone}
+              disabled={readOnly}
+              showCall={!isNew}
+              style={{ marginBottom: 0 }}
+            />
+          )}
         </div>
 
         <p className="section-title">{t('booking.priceTitle')}</p>
@@ -465,17 +473,14 @@ export default function BookingScreen() {
           {pricingMode === 'owner_net' && !noMaklerCredited && (
             <div className="field">
               <label htmlFor="owner-net">{t('booking.ownerNetLabel', { currency: code })}</label>
-              <input
+              <MoneyInput
                 id="owner-net"
-                type="number"
-                inputMode="decimal"
-                min="0"
-                step="1000"
+                currency={code}
                 value={ownerNet}
                 disabled={readOnly}
-                onChange={(e) => {
+                onChange={(next) => {
                   setOwnerNetEdited(true)
-                  setOwnerNet(e.target.value)
+                  setOwnerNet(next)
                 }}
               />
               {!readOnly && ratesApply && (
@@ -490,17 +495,14 @@ export default function BookingScreen() {
                 ? t('booking.chargedLabel', { currency: code })
                 : t('booking.totalLabel', { currency: code })}
             </label>
-            <input
+            <MoneyInput
               id="total"
-              type="number"
-              inputMode="decimal"
-              min="0"
-              step="0.01"
+              currency={code}
               value={total}
               disabled={readOnly}
-              onChange={(e) => {
+              onChange={(next) => {
                 setTotalEdited(true)
-                setTotal(e.target.value)
+                setTotal(next)
               }}
             />
           </div>
@@ -544,15 +546,13 @@ export default function BookingScreen() {
 
           <div className="field" style={{ marginTop: 14, marginBottom: 0 }}>
             <label htmlFor="deposit">{t('booking.depositLabel', { currency: DEPOSIT_CURRENCY })}</label>
-            <input
+            <MoneyInput
               id="deposit"
-              type="number"
-              inputMode="decimal"
-              min={MIN_DEPOSIT}
-              step="1000"
+              currency={DEPOSIT_CURRENCY}
+              suggestions={DEPOSIT_SUGGESTIONS}
               value={deposit}
               disabled={readOnly}
-              onChange={(e) => setDeposit(e.target.value)}
+              onChange={setDeposit}
             />
             {!readOnly && (
               <p className="field-hint">
@@ -660,7 +660,7 @@ export default function BookingScreen() {
 
         {!readOnly && (
           <div className="button-row">
-            <button type="button" className="button" disabled={saving} onClick={() => void save()}>
+            <button type="button" className="button" disabled={saving || !online} onClick={() => void save()}>
               {saving ? t('common.saving') : isNew ? t('booking.create') : t('common.saveChanges')}
             </button>
           </div>
@@ -679,5 +679,51 @@ export default function BookingScreen() {
         )}
       </main>
     </>
+  )
+}
+
+/**
+ * The client's number: optional, and on a saved booking also a dial link.
+ *
+ * Whatever was typed goes straight into the tel: URI -- no country code is
+ * inferred, since guessing one wrong is worse than leaving the number exactly
+ * as the person entered it.
+ */
+function PhoneField({
+  value,
+  onChange,
+  disabled,
+  showCall,
+  style,
+}: {
+  value: string
+  onChange: (next: string) => void
+  disabled: boolean
+  /** Only a booking that exists can be called from; a blank new form cannot. */
+  showCall: boolean
+  style?: CSSProperties
+}) {
+  const { t } = useI18n()
+  const dialable = value.trim()
+
+  return (
+    <div className="field" style={style}>
+      <label htmlFor="phone">{t('booking.phoneLabel')}</label>
+      <input
+        id="phone"
+        type="tel"
+        inputMode="tel"
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={t('booking.phonePlaceholder')}
+      />
+      {showCall && dialable && (
+        <a className="button button-secondary button-small call-link" href={`tel:${dialable}`}>
+          {t('booking.callClient', { phone: dialable })}
+        </a>
+      )}
+      {!disabled && <p className="field-hint">{t('booking.phoneOptional')}</p>}
+    </div>
   )
 }

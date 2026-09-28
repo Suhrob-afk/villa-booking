@@ -1,6 +1,9 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { registerServiceWorker } from './lib/offline'
 import './styles.css'
+
+registerServiceWorker()
 
 const root = createRoot(document.getElementById('root')!)
 

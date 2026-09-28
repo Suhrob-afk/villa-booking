@@ -82,3 +82,38 @@ export function formatMoneyGroups(totals: Map<string, number>, emptyCurrency: st
     .map(([currency, amount]) => formatMoney(amount, currency))
     .join(' · ')
 }
+
+// ------------------------------------------------------ amount entry ----
+
+/**
+ * What a money input actually stores: digits and at most one decimal point.
+ * Separators the user sees (or pastes) are stripped back out here, so the
+ * value handed to the form is always a plain number string.
+ */
+export function toPlainAmount(input: string): string {
+  const cleaned = input.replace(/[^\d.]/g, '')
+  const [whole, ...rest] = cleaned.split('.')
+  return rest.length ? `${whole}.${rest.join('').slice(0, 2)}` : whole
+}
+
+/**
+ * "1000000" -> "1,000,000", for display only. A trailing "." and a partly
+ * typed decimal are preserved so grouping never fights the person typing.
+ */
+export function groupAmount(plain: string): string {
+  if (!plain) return ''
+  const [whole, decimals] = plain.split('.')
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  if (decimals === undefined) return plain.endsWith('.') ? `${grouped}.` : grouped
+  return `${grouped}.${decimals}`
+}
+
+/** Five round amounts, scaled to the currency the field is priced in. */
+export function amountSuggestions(currency: string): number[] {
+  return currency.toUpperCase() === 'USD'
+    ? [50, 100, 150, 200, 500]
+    : [500_000, 1_000_000, 1_500_000, 2_000_000, 5_000_000]
+}
+
+/** Deposits are UZS and may never go under MIN_DEPOSIT, so they start there. */
+export const DEPOSIT_SUGGESTIONS = [MIN_DEPOSIT, 200_000, 300_000, 500_000, 1_000_000]
