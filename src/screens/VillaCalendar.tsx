@@ -121,7 +121,7 @@ export default function VillaCalendar() {
           isOwner ? (
             <button
               type="button"
-              className="icon-button"
+              className="icon-button icon-button-lg"
               onClick={() => navigate(`/villa/${villa.id}/setup`)}
               aria-label={t('villa.setupAria')}
             >
