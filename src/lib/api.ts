@@ -379,3 +379,28 @@ export function fetchBlockedDates(villaId: string) {
 export function fetchCommissionRows() {
   return cached('commissions', () => loadCommissionRows())
 }
+
+// ------------------------------------------------------------- dashboard --
+
+/** A booking plus its villa, at every status -- cancellations included. */
+export interface DashboardBooking extends Booking {
+  villa: Pick<Villa, 'id' | 'name' | 'currency'> | null
+}
+
+/**
+ * Every booking the owner can see, cancelled ones too. The commission and
+ * breakdown queries both filter to confirmed; the dashboard counts
+ * cancellations as a figure in their own right, so it cannot reuse them.
+ */
+async function loadDashboardBookings(): Promise<DashboardBooking[]> {
+  return supabase
+    .from('bookings')
+    .select('*, villa:villas!bookings_villa_id_fkey(id,name,currency)')
+    .order('check_in', { ascending: false })
+    .returns<DashboardBooking[]>()
+    .then(unwrap<DashboardBooking[]>)
+}
+
+export function fetchDashboardBookings() {
+  return cached('bookings:dashboard', () => loadDashboardBookings())
+}

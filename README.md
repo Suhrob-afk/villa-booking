@@ -224,6 +224,33 @@ where the user is not loaded yet.
 > would restyle every financial figure in the app, which is a bigger decision
 > than translating the labels around them.
 
+## Dashboard
+
+The second nav tab. For an owner it holds two tabs of its own — **Overview**
+and **Commissions**, the latter unchanged from when it was a screen in its own
+right. A makler has no villas to report on, so they skip the tab strip entirely
+and land on the commission list they already had.
+
+Overview reuses the Week/Month/Year stepper from Breakdown rather than
+inventing a second period control, and adds a villa filter. That filter is
+built from the villas appearing in the bookings themselves, so an archived
+villa's history stays reachable, and it hides itself when there is only one.
+
+Counts and money follow the selected period; cancelled bookings are counted but
+never treated as sales. Money is grouped per currency like everywhere else, and
+broken down per villa only within a currency that actually holds more than one —
+a UZS villa and a USD villa have nothing to add together.
+
+Two charts, both plain CSS bars driven by theme tokens, so dark mode needs
+nothing extra:
+
+- **Sales and profit by month** over a fixed twelve-month window, *not* the
+  selected period — "per month" only means something across several of them,
+  and a one-bar chart for a chosen week would not.
+- **Busiest day of the week**, ranked by nights and computed across every
+  booking rather than the period, since a busiest-day ranking over a single
+  week says nothing. The label on it says so.
+
 ## Offline
 
 View-only, on purpose. `public/sw.js` caches the app shell so it starts without

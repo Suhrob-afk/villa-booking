@@ -7,20 +7,23 @@ import { bookingTitle, currencyCode, DEPOSIT_CURRENCY, formatMoney } from '../li
 import { useI18n } from '../lib/i18n'
 import { useOnline } from '../lib/offline'
 import { notify } from '../lib/telegram'
-import { useBackButton } from '../lib/useBackButton'
-import { CombinedTotal, Empty, ErrorState, Loading, TopBar } from '../components/ui'
+import { CombinedTotal, Empty, ErrorState, Loading } from '../components/ui'
 
 type ViewAs = 'owner' | 'makler' | 'deposits'
 
-export default function Commissions() {
+/**
+ * The Commissions tab of the Dashboard. Unchanged from when it was a screen of
+ * its own except that it no longer owns any chrome -- the Dashboard supplies
+ * the header, the tab strip and <main> -- so this renders only its controls
+ * and lists.
+ */
+export default function CommissionsTab() {
   const { user } = useAuth()
   const { t } = useI18n()
   const [rows, setRows] = useState<CommissionRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [viewAs, setViewAs] = useState<ViewAs>('owner')
-
-  useBackButton(null)
 
   const load = useCallback(async () => {
     setError(null)
@@ -80,14 +83,7 @@ export default function Commissions() {
 
   return (
     <>
-      <TopBar
-        title={t('commissions.title')}
-        subtitle={
-          effectiveView === 'owner' ? t('commissions.subtitleOwner') : t('commissions.subtitleMakler')
-        }
-      />
-      <main className="screen">
-        {both && (
+      {both && (
           <div className="segmented" role="tablist" style={{ marginBottom: 14 }}>
             <button
               type="button"
@@ -136,7 +132,6 @@ export default function Commissions() {
         ) : (
           <OwnerView rows={rows} busyId={busyId} onTogglePaid={togglePaid} />
         )}
-      </main>
     </>
   )
 }

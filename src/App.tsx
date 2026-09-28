@@ -6,7 +6,7 @@ import { colorScheme } from './lib/telegram'
 import { ErrorState, Loading, OfflineBanner, TabBar, type Tab } from './components/ui'
 import BookingScreen from './screens/BookingScreen'
 import Breakdown from './screens/Breakdown'
-import Commissions from './screens/Commissions'
+import Dashboard from './screens/Dashboard'
 import Home from './screens/Home'
 import Onboarding from './screens/Onboarding'
 import VillaCalendar from './screens/VillaCalendar'
@@ -22,7 +22,7 @@ function Shell() {
   if (status === 'error') return <ErrorState message={error ?? t('common.signInFailed')} onRetry={retry} />
   if (status === 'needs-registration') return <Onboarding />
 
-  const activeTab: Tab = location.pathname.startsWith('/commissions') ? 'commissions' : 'villas'
+  const activeTab: Tab = location.pathname.startsWith('/dashboard') ? 'dashboard' : 'villas'
   // Clients (neither flag) get the placeholder only -- no tabs to wander into.
   const showTabs = Boolean(user?.is_owner || user?.is_makler)
 
@@ -30,7 +30,9 @@ function Shell() {
     <>
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/commissions" element={<Commissions />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+        {/* The tab was called Commissions before it grew an Overview. */}
+        <Route path="/commissions" element={<Navigate to="/dashboard" replace />} />
         <Route path="/villa/new" element={<VillaSetup />} />
         <Route path="/villa/:villaId" element={<VillaCalendar />} />
         <Route path="/villa/:villaId/setup" element={<VillaSetup />} />
@@ -40,7 +42,7 @@ function Shell() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       {showTabs && (
-        <TabBar active={activeTab} onChange={(tab) => navigate(tab === 'villas' ? '/' : '/commissions')} />
+        <TabBar active={activeTab} onChange={(tab) => navigate(tab === 'villas' ? '/' : '/dashboard')} />
       )}
     </>
   )

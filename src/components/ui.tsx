@@ -42,7 +42,7 @@ export function TopBar({
   )
 }
 
-export type Tab = 'villas' | 'commissions'
+export type Tab = 'villas' | 'dashboard'
 
 /** Icons inherit `currentColor`, so the active/inactive colours already on the
  *  buttons keep working untouched. */
@@ -59,8 +59,8 @@ export function TabBar({ active, onChange }: { active: Tab; onChange: (tab: Tab)
       </button>
       <button
         type="button"
-        className={active === 'commissions' ? 'active' : ''}
-        onClick={() => onChange('commissions')}
+        className={active === 'dashboard' ? 'active' : ''}
+        onClick={() => onChange('dashboard')}
       >
         <Wallet size={ICON_SIZE} strokeWidth={ICON_STROKE} aria-hidden="true" />
         {t('tabs.commissions')}

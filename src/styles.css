@@ -395,6 +395,89 @@ body.is-offline .topbar { top: 28px; }
   text-decoration: none;
 }
 
+/* ------------------------------------------------------------- charts -- */
+/* Bars only, drawn with CSS: no chart library, and every colour is a token so
+   dark mode needs nothing extra. */
+
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 110px;
+}
+
+.chart-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+}
+
+.chart-col > span {
+  display: block;
+  width: 100%;
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+  background: var(--accent);
+}
+
+.chart-col.is-empty > span { background: var(--border); }
+
+.chart-labels {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.chart-labels span {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: 9.5px;
+  letter-spacing: -0.02em;
+  color: var(--text-faint);
+}
+
+/* Ranked horizontal bars, for busiest day of the week. */
+.rank-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.rank-label {
+  width: 34px;
+  flex: none;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.rank-track {
+  flex: 1;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+
+.rank-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.rank-value {
+  width: 76px;
+  flex: none;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Quick-pick amounts under a money field. */
 .chips {
   display: flex;
