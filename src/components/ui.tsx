@@ -24,7 +24,12 @@ export function TopBar({
   return (
     <header className="topbar">
       {onBack && (
-        <button type="button" className="icon-button" onClick={onBack} aria-label={t('common.back')}>
+        <button
+          type="button"
+          className="icon-button icon-button-lg"
+          onClick={onBack}
+          aria-label={t('common.back')}
+        >
           ‹
         </button>
       )}

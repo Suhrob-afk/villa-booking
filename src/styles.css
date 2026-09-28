@@ -158,16 +158,22 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .icon-button:active { background: var(--surface-sunken); }
 
-/* The villa's settings gear. Same button as everywhere else, scaled up: at
-   34px around a 14px glyph it read as decoration and owners were missing that
-   it opens villa setup. The stronger border and the larger glyph are what make
-   it announce itself as tappable -- the shape, colour and press state are the
-   shared ones, not a new style. */
+/* Header buttons: the back arrow and the villa's settings gear. Both sit on
+   either side of the title and have to match, so the size lives here once
+   rather than on one of them. At the shared 34px the gear read as decoration
+   and owners were missing that it opens villa setup; the stronger border and
+   the larger box are what make these announce themselves as tappable. Shape,
+   colour and press state stay the shared ones -- this is a size, not a new
+   style.
+
+   font-size carries the text glyphs (the ‹ arrow). The gear is an SVG with its
+   own explicit size below, so it ignores this. */
 .icon-button-lg {
   width: 50px;
   height: 50px;
   border-radius: 14px;
   border-color: var(--border-strong);
+  font-size: 26px;
 }
 
 /* 30 of the button's 50px: the gear fills the box instead of floating in a
