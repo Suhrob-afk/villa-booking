@@ -1,19 +1,25 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   countVillaBookings,
   createVilla,
   deleteVilla,
+  fetchChannelMakler,
   fetchVilla,
   fetchVillaMaklers,
+  findMaklerForVilla,
   linkMakler,
+  loadVillaPayoutCard,
+  saveVillaPayoutCard,
   setVillaArchived,
   unlinkMakler,
   updateVilla,
+  type MaklerRef,
   type VillaInput,
 } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { CURRENCIES, DEPOSIT_CURRENCY, DEPOSIT_SUGGESTIONS, MIN_DEPOSIT } from '../lib/format'
+import { bookingLink, formatCardNumber } from '../lib/holds'
 import { useI18n } from '../lib/i18n'
 import { useOnline } from '../lib/offline'
 import { confirmAction, notify } from '../lib/telegram'
@@ -46,7 +52,7 @@ const BLANK: FormState = {
   deposit_amount: '250000',
 }
 
-function toInput(form: FormState): VillaInput {
+function toInput(form: FormState, channelMaklerId: string | null): VillaInput {
   return {
     name: form.name.trim(),
     location: form.location.trim() || null,
@@ -57,7 +63,13 @@ function toInput(form: FormState): VillaInput {
     platform_fee_rate: (Number(form.platform_fee_percent) || 0) / 100,
     capacity: form.capacity ? Number(form.capacity) : null,
     deposit_amount: Number(form.deposit_amount) || 0,
+    default_channel_makler_id: channelMaklerId,
   }
+}
+
+/** Card numbers are typed with spaces and stored as bare digits. */
+function cardDigits(input: string): string {
+  return input.replace(/\s/g, '')
 }
 
 /** Villa Setup — owner only. Rates, commission and the makler roster. */
@@ -77,6 +89,21 @@ export default function VillaSetup() {
   const [archivedAt, setArchivedAt] = useState<string | null>(null)
   const [removing, setRemoving] = useState(false)
   const [maklerInput, setMaklerInput] = useState('')
+  /** As typed, grouped in fours. */
+  const [card, setCard] = useState('')
+  /** What is stored now, so Save only writes the card when it changed. */
+  const [savedCard, setSavedCard] = useState<string | null>(null)
+  /**
+   * False when the card could not be read (offline, say). The card is then
+   * left alone on save -- an unread field must never be saved as "removed".
+   */
+  const [cardLoaded, setCardLoaded] = useState(false)
+  const [channelMaklerId, setChannelMaklerId] = useState<string | null>(null)
+  const [channelMakler, setChannelMakler] = useState<MaklerRef | null>(null)
+  const [channelInput, setChannelInput] = useState('')
+  const [channelChecking, setChannelChecking] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const linkRef = useRef<HTMLInputElement>(null)
   const [loading, setLoading] = useState(!isNew)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -90,10 +117,11 @@ export default function VillaSetup() {
     setLoading(true)
     setLoadError(null)
     try {
-      const [villa, roster, bookings] = await Promise.all([
+      const [villa, roster, bookings, channel] = await Promise.all([
         fetchVilla(villaId),
         fetchVillaMaklers(villaId),
         countVillaBookings(villaId),
+        fetchChannelMakler(villaId),
       ])
       setForm({
         name: villa.name,
@@ -110,6 +138,16 @@ export default function VillaSetup() {
       setManagers(roster)
       setBookingCount(bookings)
       setArchivedAt(villa.archived_at)
+      setChannelMaklerId(villa.default_channel_makler_id)
+      setChannelMakler(channel)
+      try {
+        const stored = await loadVillaPayoutCard(villaId)
+        setSavedCard(stored)
+        setCard(stored ? formatCardNumber(stored) : '')
+        setCardLoaded(true)
+      } catch {
+        setCardLoaded(false)
+      }
     } catch (err) {
       setLoadError((err as Error).message)
     } finally {
@@ -141,16 +179,25 @@ export default function VillaSetup() {
       setError(t('setup.nameRequired'))
       return
     }
+    const digits = cardDigits(card)
+    if (!isNew && cardLoaded && digits && !/^\d{16}$/.test(digits)) {
+      setError(t('setup.cardInvalid'))
+      return
+    }
     setSaving(true)
     setError(null)
     try {
-      const input = toInput(form)
+      const input = toInput(form, isNew ? null : channelMaklerId)
       if (isNew) {
         const villa = await createVilla(user!.id, input)
         notify('success')
         navigate(`/villa/${villa.id}`, { replace: true })
       } else {
         await updateVilla(villaId!, input)
+        if (cardLoaded && (digits || null) !== savedCard) {
+          await saveVillaPayoutCard(villaId!, digits || null)
+          setSavedCard(digits || null)
+        }
         notify('success')
         goBack()
       }
@@ -177,6 +224,65 @@ export default function VillaSetup() {
     } catch (err) {
       notify('error')
       setError((err as Error).message)
+    }
+  }
+
+  /** Same lookup as crediting a makler on a booking: any registered makler, linked or not. */
+  async function chooseChannelMakler() {
+    const reference = channelInput.trim()
+    if (!reference) {
+      setError(t('setup.referenceRequired'))
+      return
+    }
+    setChannelChecking(true)
+    setError(null)
+    try {
+      const makler = await findMaklerForVilla(villaId!, reference)
+      setChannelMaklerId(makler.id)
+      setChannelMakler(makler)
+      setChannelInput('')
+      notify('success')
+    } catch (err) {
+      notify('error')
+      const message = (err as Error).message
+      setError(message.includes('No makler has the reference') ? t('error.notAMakler') : message)
+    } finally {
+      setChannelChecking(false)
+    }
+  }
+
+  function clearChannelMakler() {
+    setChannelMaklerId(null)
+    setChannelMakler(null)
+  }
+
+  /**
+   * The Clipboard API is missing or refused in some Telegram WebViews, so fall
+   * back to selecting the field and execCommand; failing both, the link is
+   * left selected for the owner to copy by hand.
+   */
+  async function copyLink() {
+    if (!villaCode) return
+    const link = bookingLink(villaCode)
+    let ok = false
+    try {
+      await navigator.clipboard.writeText(link)
+      ok = true
+    } catch {
+      linkRef.current?.select()
+      try {
+        ok = document.execCommand('copy')
+      } catch {
+        ok = false
+      }
+    }
+    if (ok) {
+      notify('success')
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } else {
+      linkRef.current?.select()
+      setError(t('setup.shareCopyFailed'))
     }
   }
 
@@ -394,6 +500,85 @@ export default function VillaSetup() {
               </button>
               <p className="field-hint">{t('setup.addMaklerHint')}</p>
             </div>
+          </>
+        )}
+
+        {!isNew && villaCode && (
+          <>
+            <p className="section-title">{t('setup.publicTitle')}</p>
+            <div className="card card-pad">
+              <div className="field">
+                <label htmlFor="payout-card">{t('setup.cardLabel')}</label>
+                <input
+                  id="payout-card"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  disabled={!cardLoaded}
+                  value={card}
+                  onChange={(e) => setCard(formatCardNumber(e.target.value))}
+                  placeholder="8600 0000 0000 0000"
+                />
+                <p className="field-hint">{cardLoaded ? t('setup.cardHint') : t('setup.cardUnavailable')}</p>
+              </div>
+
+              <div className="field">
+                <label htmlFor="channel-makler">{t('setup.channelMaklerLabel')}</label>
+                {channelMaklerId ? (
+                  <div className="row row-static" style={{ padding: 0 }}>
+                    <div className="row-main">
+                      <div className="row-title">{channelMakler?.name || t('commissions.maklerFallback')}</div>
+                      {channelMakler?.oikoz_id && <div className="row-sub">{channelMakler.oikoz_id}</div>}
+                    </div>
+                    <button type="button" className="button button-secondary button-small" onClick={clearChannelMakler}>
+                      {t('common.remove')}
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      id="channel-makler"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      value={channelInput}
+                      onChange={(e) => setChannelInput(e.target.value)}
+                      placeholder="oikoz_id0001"
+                    />
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      style={{ marginTop: 10 }}
+                      disabled={channelChecking || !online}
+                      onClick={() => void chooseChannelMakler()}
+                    >
+                      {channelChecking ? t('booking.creditChecking') : t('setup.channelMaklerSubmit')}
+                    </button>
+                  </>
+                )}
+                <p className="field-hint">{t('setup.channelMaklerHint')}</p>
+              </div>
+
+              <div className="field" style={{ marginBottom: 0 }}>
+                <label htmlFor="share-link">{t('setup.shareLabel')}</label>
+                <input
+                  id="share-link"
+                  ref={linkRef}
+                  readOnly
+                  value={bookingLink(villaCode)}
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  style={{ marginTop: 10 }}
+                  onClick={() => void copyLink()}
+                >
+                  {copied ? t('setup.shareCopied') : t('setup.shareCopy')}
+                </button>
+                <p className="field-hint">{t('setup.shareHint')}</p>
+              </div>
+            </div>
+            <p className="field-hint">{t('setup.publicSaveHint')}</p>
           </>
         )}
 

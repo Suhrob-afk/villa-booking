@@ -21,6 +21,7 @@ import {
   formatPercent,
   MIN_DEPOSIT,
 } from '../lib/format'
+import { isHold } from '../lib/holds'
 import { useI18n } from '../lib/i18n'
 import { useOnline } from '../lib/offline'
 import { quoteRange, splitTotal } from '../lib/pricing'
@@ -53,7 +54,29 @@ const DB_ERROR_KEYS: [needle: string, key: StringKey][] = [
   ['bookings_dates_ordered', 'error.checkOutAfterCheckIn'],
   ['Owners may only cancel', 'error.ownersMayOnlyCancel'],
   ['Only the villa owner', 'error.ownerSettlesCommission'],
+  ['deposit hold and cannot be changed', 'error.holdReadOnly'],
+  ['Deposit holds can only be created', 'error.holdReadOnly'],
 ]
+
+const STATUS_LABEL: Record<Booking['status'], StringKey> = {
+  confirmed: 'booking.statusConfirmed',
+  cancelled: 'booking.statusCancelled',
+  pending: 'booking.statusPending',
+  expired: 'booking.statusExpired',
+}
+
+const STATUS_BADGE: Record<Booking['status'], string> = {
+  confirmed: 'badge-accent',
+  cancelled: 'badge-danger',
+  pending: 'badge-warning',
+  expired: 'badge-danger',
+}
+
+/** Local wall-clock time, so the hold's end reads the same as the owner's phone clock. */
+function clockTime(iso: string): string {
+  const date = new Date(iso)
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
 
 export default function BookingScreen() {
   const { bookingId, villaId: villaIdParam } = useParams<{ bookingId?: string; villaId?: string }>()
@@ -191,6 +214,12 @@ export default function BookingScreen() {
   const noMaklerCredited = !maklerCredited
   const isCancelled = booking?.status === 'cancelled'
   /**
+   * A deposit hold from the public booking page. Only server-side code may
+   * confirm or release one (bookings_status_guard), so here it is read-only
+   * and has no cancel/reopen toggle.
+   */
+  const hold = Boolean(booking && isHold(booking))
+  /**
    * The owner logging a booking on their own villa with nobody credited.
    * These are arranged by phone outside the app, so the form drops client
    * identity, the makler credit and the commission split: there is no
@@ -199,7 +228,7 @@ export default function BookingScreen() {
    * the client and the split, they just cannot edit them.
    */
   const ownerLogged = filingAsOwner && (isNew || booking?.manager_id === null)
-  const readOnly = (isOwner && !ownerLogged) || isCancelled
+  const readOnly = (isOwner && !ownerLogged) || isCancelled || hold
 
   // Existing bookings keep the rate they were created with.
   const villaRate = booking?.commission_rate_snapshot ?? villa?.commission_rate ?? 0
@@ -316,7 +345,11 @@ export default function BookingScreen() {
         {error && <Alert>{error}</Alert>}
         {isPastStay && !isCancelled && <Alert kind="info">{t('booking.pastDateNotice')}</Alert>}
         {isCancelled && <Alert kind="info">{t('booking.cancelledNotice')}</Alert>}
-        {isOwner && !isNew && !isCancelled && <Alert kind="info">{t('booking.ownerReadOnly')}</Alert>}
+        {booking?.status === 'pending' && booking.hold_expires_at && (
+          <Alert kind="info">{t('booking.holdNotice', { time: clockTime(booking.hold_expires_at) })}</Alert>
+        )}
+        {booking?.status === 'expired' && <Alert kind="info">{t('booking.holdExpiredNotice')}</Alert>}
+        {isOwner && !isNew && !isCancelled && !hold && <Alert kind="info">{t('booking.ownerReadOnly')}</Alert>}
 
         <div className="card card-pad">
           {!ownerLogged && (
@@ -626,9 +659,7 @@ export default function BookingScreen() {
             </dl>
             {booking && (
               <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-                <span className={`badge ${booking.status === 'confirmed' ? 'badge-accent' : 'badge-danger'}`}>
-                  {booking.status === 'confirmed' ? t('booking.statusConfirmed') : t('booking.statusCancelled')}
-                </span>
+                <span className={`badge ${STATUS_BADGE[booking.status]}`}>{t(STATUS_LABEL[booking.status])}</span>
                 <span className={`badge ${booking.commission_status === 'paid' ? 'badge-success' : 'badge-warning'}`}>
                   {t('booking.commissionBadge', {
                     status: booking.commission_status === 'paid' ? t('common.paid') : t('common.unpaid'),
@@ -666,7 +697,7 @@ export default function BookingScreen() {
           </div>
         )}
 
-        {!isNew && (
+        {!isNew && !hold && (
           <div className="button-row">
             <button
               type="button"

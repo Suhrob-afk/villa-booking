@@ -422,6 +422,34 @@ const en = {
   'setup.archivedNotice': 'This villa is archived. It stays out of My Villas, and its revenue still counts.',
   'home.archivedToggle': 'Archived villas ({count})',
   'home.unarchive': 'Restore',
+
+  // ------------------------------------------------ public booking page --
+  'setup.publicTitle': 'Public booking page',
+  'setup.cardLabel': 'Your card number for deposits',
+  'setup.cardHint':
+    '16 digits. Shown only to a guest reserving through your booking link, so they can transfer the deposit. Maklers never see it.',
+  'setup.cardUnavailable': 'Couldn’t load your card number. Reconnect to view or change it.',
+  'setup.cardInvalid': 'A card number has 16 digits.',
+  'setup.channelMaklerLabel': 'Makler credited on link bookings (optional)',
+  'setup.channelMaklerSubmit': 'Set as default makler',
+  'setup.channelMaklerHint':
+    'Bookings that come through your booking link credit this makler with the villa’s commission. Leave it empty and they credit nobody.',
+  'setup.shareLabel': 'Booking link',
+  'setup.shareCopy': 'Copy link',
+  'setup.shareCopied': 'Copied',
+  'setup.shareCopyFailed': 'Couldn’t copy automatically — the link is selected, copy it by hand.',
+  'setup.shareHint':
+    'Put it in your Instagram bio or a Telegram channel post. It opens this villa’s booking page in Telegram.',
+  'setup.publicSaveHint': 'The card number and default makler are saved with “Save changes”.',
+  'calendar.legendHeld': 'Awaiting deposit',
+  'calendar.dayHeld': '{date} — held for a guest paying the deposit',
+  'booking.statusPending': 'Awaiting deposit',
+  'booking.statusExpired': 'Hold expired',
+  'booking.holdNotice':
+    'A guest from your booking link is holding these dates until {time} while they transfer the deposit. If it isn’t confirmed by then, the dates are released automatically.',
+  'booking.holdExpiredNotice':
+    'This hold expired before the deposit was confirmed. The dates were released, and it counts as neither a booking nor a cancellation.',
+  'error.holdReadOnly': 'This is a deposit hold from your booking link — it can’t be changed here.',
 }
 
 export type StringKey = keyof typeof en
@@ -760,6 +788,34 @@ const ru: Record<StringKey, string> = {
   'setup.archivedNotice': 'Вилла в архиве. Она не показывается в «Моих виллах», но её выручка по-прежнему учитывается.',
   'home.archivedToggle': 'Виллы в архиве ({count})',
   'home.unarchive': 'Вернуть',
+
+  // ------------------------------------------------ public booking page --
+  'setup.publicTitle': 'Публичная страница бронирования',
+  'setup.cardLabel': 'Номер вашей карты для депозитов',
+  'setup.cardHint':
+    '16 цифр. Показывается только гостю, который бронирует по вашей ссылке, чтобы он перевёл депозит. Маклеры его не видят.',
+  'setup.cardUnavailable': 'Не удалось загрузить номер карты. Подключитесь к сети, чтобы посмотреть или изменить его.',
+  'setup.cardInvalid': 'Номер карты состоит из 16 цифр.',
+  'setup.channelMaklerLabel': 'Маклер для броней по ссылке (необязательно)',
+  'setup.channelMaklerSubmit': 'Назначить маклером по умолчанию',
+  'setup.channelMaklerHint':
+    'Брони по вашей ссылке засчитываются этому маклеру с комиссией виллы. Оставьте пустым — комиссия никому не начисляется.',
+  'setup.shareLabel': 'Ссылка для бронирования',
+  'setup.shareCopy': 'Скопировать ссылку',
+  'setup.shareCopied': 'Скопировано',
+  'setup.shareCopyFailed': 'Не удалось скопировать автоматически — ссылка выделена, скопируйте её вручную.',
+  'setup.shareHint':
+    'Разместите её в описании Instagram или в посте Telegram-канала. Она открывает страницу бронирования этой виллы в Telegram.',
+  'setup.publicSaveHint': 'Номер карты и маклер по умолчанию сохраняются кнопкой «Сохранить изменения».',
+  'calendar.legendHeld': 'Ждёт депозита',
+  'calendar.dayHeld': '{date} — удержано для гостя, который вносит депозит',
+  'booking.statusPending': 'Ждёт депозита',
+  'booking.statusExpired': 'Удержание истекло',
+  'booking.holdNotice':
+    'Гость по вашей ссылке удерживает эти даты до {time}, пока переводит депозит. Если к этому времени депозит не подтверждён, даты освободятся автоматически.',
+  'booking.holdExpiredNotice':
+    'Удержание истекло до подтверждения депозита. Даты освобождены; это не считается ни бронью, ни отменой.',
+  'error.holdReadOnly': 'Это удержание с депозитом по вашей ссылке — изменить его здесь нельзя.',
 }
 
 const uz: Record<StringKey, string> = {
@@ -1096,6 +1152,34 @@ const uz: Record<StringKey, string> = {
   'setup.archivedNotice': 'Villa arxivda. U «Mening villalarim»da ko‘rinmaydi, tushumi esa hisobga olinaveradi.',
   'home.archivedToggle': 'Arxivdagi villalar ({count})',
   'home.unarchive': 'Tiklash',
+
+  // ------------------------------------------------ public booking page --
+  'setup.publicTitle': 'Ommaviy bron sahifasi',
+  'setup.cardLabel': 'Depozitlar uchun karta raqamingiz',
+  'setup.cardHint':
+    '16 ta raqam. Faqat havolangiz orqali bron qilayotgan mehmonga depozitni o‘tkazishi uchun ko‘rsatiladi. Maklerlar uni ko‘rmaydi.',
+  'setup.cardUnavailable': 'Karta raqamini yuklab bo‘lmadi. Uni ko‘rish yoki o‘zgartirish uchun internetga ulaning.',
+  'setup.cardInvalid': 'Karta raqami 16 ta raqamdan iborat.',
+  'setup.channelMaklerLabel': 'Havola orqali bronlar uchun makler (ixtiyoriy)',
+  'setup.channelMaklerSubmit': 'Standart makler qilib belgilash',
+  'setup.channelMaklerHint':
+    'Havolangiz orqali kelgan bronlar villa komissiyasi bilan shu maklerga yoziladi. Bo‘sh qoldirsangiz, hech kimga yozilmaydi.',
+  'setup.shareLabel': 'Bron havolasi',
+  'setup.shareCopy': 'Havolani nusxalash',
+  'setup.shareCopied': 'Nusxalandi',
+  'setup.shareCopyFailed': 'Avtomatik nusxalab bo‘lmadi — havola belgilandi, uni qo‘lda nusxalang.',
+  'setup.shareHint':
+    'Uni Instagram profilingizga yoki Telegram kanalidagi postga joylang. U Telegramda shu villaning bron sahifasini ochadi.',
+  'setup.publicSaveHint': 'Karta raqami va standart makler «O‘zgarishlarni saqlash» tugmasi bilan saqlanadi.',
+  'calendar.legendHeld': 'Depozit kutilmoqda',
+  'calendar.dayHeld': '{date} — depozit to‘layotgan mehmon uchun band qilingan',
+  'booking.statusPending': 'Depozit kutilmoqda',
+  'booking.statusExpired': 'Band qilish muddati tugagan',
+  'booking.holdNotice':
+    'Havolangiz orqali kelgan mehmon depozitni o‘tkazguncha bu sanalarni soat {time} gacha band qilib turibdi. Shu vaqtgacha tasdiqlanmasa, sanalar avtomatik ravishda bo‘shatiladi.',
+  'booking.holdExpiredNotice':
+    'Depozit tasdiqlanishidan oldin band qilish muddati tugadi. Sanalar bo‘shatildi; bu bron ham, bekor qilish ham hisoblanmaydi.',
+  'error.holdReadOnly': 'Bu havolangiz orqali qilingan depozitli band qilish — uni bu yerda o‘zgartirib bo‘lmaydi.',
 }
 
 export const STRINGS: Record<Lang, Record<StringKey, string>> = { en, ru, uz }

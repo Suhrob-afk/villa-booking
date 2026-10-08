@@ -31,8 +31,21 @@ Languages: en / ru / uz.
 - Villas are UZS or USD only (`villas_currency_supported`), because a booking
   has to be able to default to the villa's currency.
 - `blocked_dates` table, owner-only, RLS via `is_villa_owner()`.
-- Overlap protection: GiST exclusion constraint on `bookings`; half-open ranges,
-  so a check-out day can be the next check-in.
+- Overlap protection: GiST exclusion constraint on `bookings`, covering
+  `status IN ('confirmed','pending')`; half-open ranges, so a check-out day can
+  be the next check-in.
+- Booking statuses: `confirmed`, `cancelled`, `pending` (a deposit hold from
+  the public booking page, live only while `hold_expires_at > now()`) and
+  `expired` (a lapsed hold: never revenue, commission **or** a cancellation).
+  App users can't create, edit or confirm holds (`bookings_status_guard`); only
+  service-role edge functions do. Any read that shows availability must treat
+  pending as occupying nights only while `hold_expires_at > now()`, because an
+  expired hold can stay `pending` for up to two minutes until the sweep.
+- Owner payout card: `villa_payout_details`, owner-only RLS. Never put it on
+  `villas`, because linked maklers can read the whole villa row.
+- Guard triggers that test `current_user` must be `SECURITY INVOKER`: inside a
+  SECURITY DEFINER function `current_user` is the owner (postgres), which made
+  `users_update_guard` and `villas_delete_guard` no-ops until `0016`.
 - Villa removal: delete only with zero bookings, otherwise archive
   (`villas.archived_at`). `villas_delete_guard()` enforces it in the database,
   because `bookings.villa_id` cascades.
@@ -40,13 +53,17 @@ Languages: en / ru / uz.
   `telegram-bot-webhook` (onboarding, `/role`, `/language`), `link-manager`,
   `exchange-rate` (CBU USD/UZS rate, read-through cached in `exchange_rates`),
   `admin-users`.
-- No pg_cron. Nothing is scheduled; the exchange rate refreshes on demand when
-  the cached row is no longer from today.
+- pg_cron runs exactly one job, `oikoz-release-expired-holds`, every two
+  minutes (`0017`). The exchange rate is still not scheduled; it refreshes on
+  demand when the cached row is no longer from today.
 
 ## Rules
 
 - DB changes: new numbered, idempotent migration files. Never edit applied ones.
-  Apply with `supabase db push --linked`.
+  From v2 on, the user pastes each one into the SQL Editor themselves, so give
+  the exact run order and never assume one has been applied. An `ALTER TYPE
+  ... ADD VALUE` goes in a file of its own, because the editor runs a script as
+  one transaction.
 - Never trust client input: verify initData server-side for anything sensitive.
 - **Money is never summed across currencies.** Group per currency, in a single
   villa's totals as well as across villas. The one exception is the Dashboard's

@@ -121,6 +121,55 @@ async function loadVillaBookingCount(villaId: string): Promise<number> {
   return count ?? 0
 }
 
+// ---------------------------------------------------- public booking page --
+
+/**
+ * The owner's payout card, from villa_payout_details -- a table only the
+ * villa's owner can read, so it is never on the villa row maklers see.
+ * Deliberately not cached: a card number has no business sitting in device
+ * storage for the offline snapshot.
+ */
+export async function loadVillaPayoutCard(villaId: string): Promise<string | null> {
+  const rows = await supabase
+    .from('villa_payout_details')
+    .select('card_number')
+    .eq('villa_id', villaId)
+    .then(unwrap<{ card_number: string }[]>)
+  return rows[0]?.card_number ?? null
+}
+
+/** Digits only, 16 of them; null removes the card. */
+export async function saveVillaPayoutCard(villaId: string, cardNumber: string | null): Promise<void> {
+  assertOnline()
+  const { error } = cardNumber
+    ? await supabase
+        .from('villa_payout_details')
+        .upsert({ villa_id: villaId, card_number: cardNumber }, { onConflict: 'villa_id' })
+    : await supabase.from('villa_payout_details').delete().eq('villa_id', villaId)
+  if (error) throw new Error(error.message)
+}
+
+export interface MaklerRef {
+  id: string
+  oikoz_id: string
+  name: string
+}
+
+/**
+ * The villa's default channel makler, by name. The owner may not read an
+ * unlinked makler's users row, so this goes through an owner-gated RPC.
+ */
+async function loadChannelMakler(villaId: string): Promise<MaklerRef | null> {
+  const rows = await supabase
+    .rpc('villa_channel_makler', { p_villa_id: villaId })
+    .then(unwrap<MaklerRef[]>)
+  return rows?.[0] ?? null
+}
+
+export function fetchChannelMakler(villaId: string) {
+  return cached(`channelmakler:${villaId}`, () => loadChannelMakler(villaId))
+}
+
 // ------------------------------------------------------------------- team --
 
 /** Maklers are linked by oikoz_id; telegram_id stays available for support lookups. */
