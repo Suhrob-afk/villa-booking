@@ -2,10 +2,10 @@
 // telegram-auth — turns Telegram initData into a Supabase-compatible JWT.
 //
 //   1. Verify the initData HMAC with the bot token (proves Telegram signed it).
-//   2. Look up public.users by telegram_id. On first login, register the
-//      person: full name, phone, and role(s) -- owner, manager, or both --
-//      then mint them an oikoz_id, the short code they hand other people to
-//      link up (their Telegram id itself is never exposed to anyone else).
+//   2. Look up public.users by telegram_id. Registration normally happens in
+//      the bot conversation; the one exception is a visitor arriving through
+//      a villa's public booking link (startapp=villa_id0001), who is
+//      registered here on the spot as a bare client.
 //   3. Mint an HS256 JWT signed with the project's JWT secret, with
 //      sub = users.id and role = authenticated, so RLS sees auth.uid().
 //
@@ -22,91 +22,30 @@
 //                           Local development only. Never enable in production.
 // ============================================================================
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+import { corsHeaders, json } from '../_shared/http.ts'
+import {
+  hmacSha256,
+  isVillaCode,
+  telegramDisplayName,
+  verifyInitData,
+  type TelegramUser,
+} from '../_shared/telegram.ts'
 
 const TOKEN_TTL_SECONDS = 60 * 60 * 24 // 24h
-const INITDATA_MAX_AGE_SECONDS = 60 * 60 * 24
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-}
 
 const encoder = new TextEncoder()
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  })
-}
 
 function base64url(bytes: Uint8Array): string {
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-async function hmac(key: ArrayBuffer | Uint8Array, message: string): Promise<Uint8Array> {
-  const cryptoKey = await crypto.subtle.importKey(
-    'raw',
-    key as BufferSource,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  )
-  return new Uint8Array(await crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(message)))
-}
+type Lang = 'en' | 'ru' | 'uz'
 
-function toHex(bytes: Uint8Array): string {
-  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('')
-}
-
-/** Constant-time comparison so a wrong hash leaks no timing information. */
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false
-  let diff = 0
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
-  return diff === 0
-}
-
-type TelegramUser = {
-  id: number
-  first_name?: string
-  last_name?: string
-  username?: string
-}
-
-/**
- * Verifies initData per Telegram's spec:
- *   secret = HMAC_SHA256(key: "WebAppData", data: bot_token)
- *   hash   = HMAC_SHA256(key: secret,       data: sorted "k=v" lines)
- *
- * As of Bot API 8.0 (Nov 2024), 'signature' (the Ed25519 field) is part of
- * that sorted field list -- only 'hash' itself is excluded.
- */
-async function verifyInitData(initData: string, botToken: string): Promise<TelegramUser> {
-  const params = new URLSearchParams(initData)
-  const hash = params.get('hash')
-  if (!hash) throw new Error('initData is missing its hash')
-  params.delete('hash')
-
-  const dataCheckString = [...params.entries()]
-    .map(([k, v]) => `${k}=${v}`)
-    .sort()
-    .join('\n')
-
-  const secret = await hmac(encoder.encode('WebAppData'), botToken)
-  const computed = toHex(await hmac(secret, dataCheckString))
-  if (!timingSafeEqual(computed, hash)) throw new Error('initData signature is invalid')
-
-  const authDate = Number(params.get('auth_date') ?? 0)
-  if (!authDate || Math.floor(Date.now() / 1000) - authDate > INITDATA_MAX_AGE_SECONDS) {
-    throw new Error('initData has expired, please reopen the app')
-  }
-
-  const rawUser = params.get('user')
-  if (!rawUser) throw new Error('initData contains no user')
-  return JSON.parse(rawUser) as TelegramUser
+/** Telegram's client locale, narrowed to the three the app speaks. */
+function languageFrom(code: string | undefined): Lang {
+  const short = (code ?? '').slice(0, 2).toLowerCase()
+  return short === 'ru' || short === 'uz' ? short : 'en'
 }
 
 async function mintJwt(userId: string, telegramId: number, secret: string): Promise<{ token: string; expiresAt: number }> {
@@ -125,8 +64,61 @@ async function mintJwt(userId: string, telegramId: number, secret: string): Prom
   const unsigned = `${base64url(encoder.encode(JSON.stringify(header)))}.${base64url(
     encoder.encode(JSON.stringify(payload)),
   )}`
-  const signature = base64url(await hmac(encoder.encode(secret), unsigned))
+  const signature = base64url(await hmacSha256(encoder.encode(secret), unsigned))
   return { token: `${unsigned}.${signature}`, expiresAt }
+}
+
+/**
+ * A first-time visitor arriving through a villa's public booking link becomes
+ * a bare client on the spot -- no bot conversation first. Only for a link to
+ * a live villa: start_param is part of the signed initData, so this cannot be
+ * triggered by anything but a genuine t.me/oikoz_villa_bot/open?startapp=...
+ * link, and a stale or made-up code registers nobody.
+ *
+ *   is_owner / is_makler  false: a client
+ *   name                  their Telegram name; full_name stays null until
+ *                         they ever run the bot's onboarding
+ *   language              Telegram's language_code, else English
+ *   role                  set explicitly to 'manager'. The column is retired
+ *                         (0004) but still NOT NULL; 'manager' is its default
+ *                         and what every bot-registered user already holds.
+ *                         Nothing reads it.
+ *   oikoz_id              left to the column default, which mints the next one
+ *   phone                 asked for only when they try to book
+ *
+ * Two first opens racing (Telegram can fire the page twice) both upsert; the
+ * unique telegram_id keeps one row and the loser just reads it back.
+ */
+async function registerVisitor(
+  admin: SupabaseClient,
+  tgUser: TelegramUser,
+  villaCode: string,
+): Promise<{ user: Record<string, unknown> | null; error?: string }> {
+  const { data: villa, error: villaError } = await admin
+    .from('villas')
+    .select('id')
+    .eq('villa_code', villaCode)
+    .is('archived_at', null)
+    .maybeSingle()
+  if (villaError) return { user: null, error: villaError.message }
+  if (!villa) return { user: null }
+
+  const { error: insertError } = await admin.from('users').upsert(
+    {
+      telegram_id: tgUser.id,
+      name: telegramDisplayName(tgUser),
+      language: languageFrom(tgUser.language_code),
+      role: 'manager',
+      is_owner: false,
+      is_makler: false,
+    },
+    { onConflict: 'telegram_id', ignoreDuplicates: true },
+  )
+  if (insertError) return { user: null, error: insertError.message }
+
+  const { data, error } = await admin.from('users').select('*').eq('telegram_id', tgUser.id).single()
+  if (error) return { user: null, error: error.message }
+  return { user: data }
 }
 
 Deno.serve(async (req) => {
@@ -157,10 +149,13 @@ Deno.serve(async (req) => {
 
   // ---- identify the Telegram user --------------------------------------
   let tgUser: TelegramUser
+  let startParam: string | null = null
   if (body.initData) {
     if (!botToken) return json({ error: 'TELEGRAM_BOT_TOKEN is not configured' }, 500)
     try {
-      tgUser = await verifyInitData(body.initData, botToken)
+      const verified = await verifyInitData(body.initData, botToken)
+      tgUser = verified.user
+      startParam = verified.startParam
     } catch (err) {
       return json({ error: (err as Error).message }, 401)
     }
@@ -173,11 +168,10 @@ Deno.serve(async (req) => {
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } })
 
   // ---- look up the app user --------------------------------------------
-  // Purely a lookup. Registration (language, phone, name, owner/makler) happens
-  // in the telegram-bot-webhook conversation before the Mini App is opened, so
-  // there is nothing to create here -- an unknown Telegram id is sent back to
-  // the bot instead.
-  const { data: user, error: lookupError } = await admin
+  // Usually purely a lookup: registration (language, phone, name, owner/makler)
+  // happens in the telegram-bot-webhook conversation, so an unknown Telegram id
+  // is sent back to the bot. The exception is below.
+  const { data: found, error: lookupError } = await admin
     .from('users')
     .select('*')
     .eq('telegram_id', tgUser.id)
@@ -185,10 +179,15 @@ Deno.serve(async (req) => {
 
   if (lookupError) return json({ error: lookupError.message }, 500)
 
+  let user = found
+  if (!user && isVillaCode(startParam)) {
+    const registered = await registerVisitor(admin, tgUser, startParam)
+    if (registered.error) return json({ error: registered.error }, 500)
+    user = registered.user
+  }
+
   if (!user) {
-    const telegramName = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ').trim() ||
-      tgUser.username || `User ${tgUser.id}`
-    return json({ needsRegistration: true, telegram: { id: tgUser.id, name: telegramName } }, 200)
+    return json({ needsRegistration: true, telegram: { id: tgUser.id, name: telegramDisplayName(tgUser) } }, 200)
   }
 
   const { token, expiresAt } = await mintJwt(user.id, tgUser.id, jwtSecret!)

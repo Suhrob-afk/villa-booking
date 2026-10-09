@@ -419,3 +419,14 @@ verify_jwt = false
 [functions.telegram-bot-webhook]
 # Telegram signs webhook calls with a secret_token header, not a Supabase JWT.
 verify_jwt = false
+
+# The public booking page's functions. Each verifies Telegram initData itself
+# (HMAC and auth_date), which is a stronger check than a Supabase JWT here.
+[functions.get-public-villa]
+verify_jwt = false
+
+[functions.create-public-booking]
+verify_jwt = false
+
+[functions.mark-deposit-sent]
+verify_jwt = false

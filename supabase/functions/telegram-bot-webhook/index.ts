@@ -11,15 +11,23 @@
 // This function never touches telegram-auth: a user who finishes here simply
 // already exists by the time the Mini App calls it.
 //
+// It also receives the contact a visitor shares from the public booking page
+// (Telegram.WebApp.requestContact sends it to the bot as an ordinary message)
+// and saves the phone on their users row -- see savePublicContact().
+//
 // Secrets:
 //   TELEGRAM_BOT_TOKEN       — same bot as the Mini App
 //   MINI_APP_URL             — https URL the "Open App" button opens
-//   TELEGRAM_WEBHOOK_SECRET  — optional but recommended; must match the
-//                              secret_token given to setWebhook
+//   TELEGRAM_WEBHOOK_SECRET  — REQUIRED. Must match the secret_token given to
+//                              setWebhook. Without it every update is refused:
+//                              this endpoint writes phone numbers, so an
+//                              unauthenticated one would let anybody set any
+//                              user's phone.
 // Injected: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 // ============================================================================
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+import { timingSafeEqual } from '../_shared/telegram.ts'
 import { COPY, isLang, LANGUAGE_BUTTONS, LANGUAGE_PROMPT, type Lang } from './copy.ts'
 
 const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? ''
@@ -341,6 +349,55 @@ async function handleCallback(cq: Json): Promise<void> {
   }
 }
 
+/**
+ * A contact shared from the public booking page. The Mini App cannot read the
+ * phone itself -- requestContact() hands it to the bot as a message -- so this
+ * is where it lands, and the page polls get-public-villa until it shows up.
+ *
+ * Only the sender's own number is taken: Telegram sets contact.user_id when a
+ * person shares their own contact, and it must equal the sender. A forwarded
+ * or typed-in contact card has no user_id or somebody else's, and is refused.
+ * The update itself is trusted because the secret-token check above it fails
+ * closed.
+ *
+ * Only an existing users row is updated. The page registers the visitor
+ * (telegram-auth) before it ever asks for a phone.
+ */
+async function savePublicContact(
+  chatId: number,
+  telegramId: number,
+  contact: { phone_number: string; user_id?: number },
+): Promise<void> {
+  const { data: user } = await admin
+    .from('users')
+    .select('language')
+    .eq('telegram_id', telegramId)
+    .maybeSingle()
+  const lang: Lang = isLang(user?.language) ? (user!.language as Lang) : 'en'
+
+  if (!user) {
+    await send(chatId, COPY[lang].restartHint)
+    return
+  }
+
+  if (contact.user_id !== telegramId) {
+    await send(chatId, COPY[lang].phoneNotYours)
+    return
+  }
+
+  const { error } = await admin
+    .from('users')
+    .update({ phone: contact.phone_number })
+    .eq('telegram_id', telegramId)
+  if (error) {
+    console.error('public contact save failed:', error.message)
+    await send(chatId, COPY[lang].phoneSaveFailed)
+    return
+  }
+
+  await send(chatId, COPY[lang].phoneSaved)
+}
+
 /** Loose on purpose: Telegram hands back local formats as well as +E.164. */
 const PHONE_RE = /^\+?\d[\d\s\-()]{6,20}$/
 
@@ -371,6 +428,14 @@ async function handleMessage(message: Json): Promise<void> {
   }
 
   const state = await loadState(telegramId)
+
+  // A contact outside the onboarding phone step came from the public booking
+  // page. Inside that step it is the onboarding answer, handled below.
+  if (contact && state?.step !== 'phone') {
+    await savePublicContact(chatId, telegramId, contact)
+    return
+  }
+
   if (!state) {
     await send(chatId, COPY.en.restartHint)
     return
@@ -445,7 +510,17 @@ Deno.serve(async (req) => {
 
   // The webhook URL is public and unauthenticated, so the shared secret from
   // setWebhook is the only thing proving an update really came from Telegram.
-  if (WEBHOOK_SECRET && req.headers.get('X-Telegram-Bot-Api-Secret-Token') !== WEBHOOK_SECRET) {
+  // Fails closed: with no secret configured, nothing is accepted. Telegram
+  // keeps retrying a refused update for a while, so updates sent during a
+  // misconfiguration are delivered once it is fixed rather than lost.
+  if (!WEBHOOK_SECRET) {
+    console.error('TELEGRAM_WEBHOOK_SECRET is not set; refusing every update')
+    return new Response(JSON.stringify({ error: 'Webhook secret not configured' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  if (!timingSafeEqual(req.headers.get('X-Telegram-Bot-Api-Secret-Token') ?? '', WEBHOOK_SECRET)) {
     return new Response(JSON.stringify({ error: 'Bad secret token' }), {
       status: 401,
       headers: { 'Content-Type': 'application/json' },
