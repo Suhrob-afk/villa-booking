@@ -22,6 +22,8 @@ export type ErrorCode =
   | 'too_many_holds'
   | 'dates_taken'
   | 'hold_not_live'
+  | 'invalid_details'
+  | 'too_many_guests'
   | 'server'
 
 /** `code` is what the page translates; `error` is for logs and curl. */
@@ -98,12 +100,14 @@ export function isISODate(value: unknown): value is string {
 export interface VisitorRow {
   id: string
   phone: string | null
+  full_name: string | null
+  name: string | null
 }
 
 export async function findVisitor(admin: SupabaseClient, telegramId: number): Promise<VisitorRow | null> {
   const { data, error } = await admin
     .from('users')
-    .select('id, phone')
+    .select('id, phone, full_name, name')
     .eq('telegram_id', telegramId)
     .maybeSingle()
   if (error) throw new Error(error.message)
@@ -156,6 +160,7 @@ export interface BookingRow {
   total_price: number
   currency: 'uzs' | 'usd'
   deposit_amount: number
+  guests_count: number | null
   hold_expires_at: string | null
   client_marked_paid_at: string | null
   created_at: string
@@ -163,7 +168,7 @@ export interface BookingRow {
 }
 
 export const BOOKING_COLUMNS =
-  'id, villa_id, status, check_in, check_out, total_price, currency, deposit_amount, hold_expires_at, client_marked_paid_at, created_at, updated_at'
+  'id, villa_id, status, check_in, check_out, total_price, currency, deposit_amount, guests_count, hold_expires_at, client_marked_paid_at, created_at, updated_at'
 
 /** A visitor's own hold, as the page sees it. */
 export interface PublicHold {
@@ -179,10 +184,13 @@ export interface PublicHold {
   /** ISO code, e.g. "UZS". total_price is in this; the deposit is always UZS. */
   currency: string
   deposit_amount: number
+  guests_count: number | null
   marked_paid: boolean
+  /** When a live hold lapses. Null unless pending and live. */
+  hold_expires_at: string | null
   /** Seconds until the hold lapses, as of this response. Null unless pending. */
   seconds_left: number | null
-  /** Only while pending. */
+  /** Only while the hold is live AND the visitor has not yet said they paid. */
   card_number: string | null
   owner_name: string
 }
@@ -203,9 +211,11 @@ export function toPublicHold(row: BookingRow, ownerName: string, card: string | 
     total_price: Number(row.total_price),
     currency: row.currency.toUpperCase(),
     deposit_amount: Number(row.deposit_amount),
+    guests_count: row.guests_count,
     marked_paid: row.client_marked_paid_at !== null,
+    hold_expires_at: live ? row.hold_expires_at : null,
     seconds_left: live ? Math.max(0, Math.floor((Date.parse(row.hold_expires_at!) - now) / 1000)) : null,
-    card_number: live ? card : null,
+    card_number: live && row.client_marked_paid_at === null ? card : null,
     owner_name: ownerName,
   }
 }

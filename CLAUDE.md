@@ -69,9 +69,17 @@ Languages: en / ru / uz.
   visitor); "I've sent the deposit" (`mark_public_hold_paid()`) extends the
   hold to two hours from the first tap only and never sets `deposit_paid`.
   Both functions are executable by `service_role` alone.
+- Public booking form (`0021`): name (`client_name`), guests
+  (`guests_count`, 1 to the villa's capacity, or 30 when none is set), client
+  type (`client_type`) and an optional note (`notes`, 300 chars max), all
+  validated by the eight-argument `create_public_hold()`. The four-argument
+  version from `0018` is only kept for the deploy window. `get-public-villa`
+  returns other people's nights anonymously in `unavailable` and the
+  visitor's own bookings separately in `my_bookings`.
 - Owner confirmation (`0020`): `mark-deposit-sent` sends the owner a bot
-  message with Confirm received / Reject (`bk:c|rc|r:<booking id>`), and
-  `create-public-booking` a heads-up. `telegram-bot-webhook` resolves taps
+  message with Confirm received / Reject (`bk:c|rc|r:<booking id>`). That is
+  the owner's only message per booking: there is no heads-up on hold
+  creation. `telegram-bot-webhook` resolves taps
   through `confirm_public_hold()` / `reject_public_hold()`, which check the
   tapper is the villa owner. A lapsed hold is never confirmed silently, only
   via "Confirm anyway" while its dates are free, the guest marked it paid and

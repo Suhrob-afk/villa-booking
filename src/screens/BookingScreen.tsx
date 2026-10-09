@@ -422,6 +422,9 @@ export default function BookingScreen() {
               ))}
             </select>
           </div>
+          {booking?.guests_count != null && (
+            <p className="field-hint">{t('booking.guestsCount', { guests: tn('guests', booking.guests_count) })}</p>
+          )}
 
           {ownerLogged && (
             <PhoneField

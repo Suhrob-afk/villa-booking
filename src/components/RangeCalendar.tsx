@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { addMonths, isSameDay, monthGrid, parseISODate, startOfMonth, toISODate } from '../lib/dates'
 import { useI18n } from '../lib/i18n'
-import { isPickable, lastCheckIn, type Selection, type SelectionRules } from '../lib/publicBooking'
+import { isFreeNight, lastCheckIn, type Selection, type SelectionRules } from '../lib/publicBooking'
 import { haptic } from '../lib/telegram'
 import { CalendarHead } from './MonthCalendar'
 
@@ -9,21 +9,38 @@ interface Props {
   month: Date
   onMonthChange: (month: Date) => void
   rules: SelectionRules
-  selection: Selection
-  onPick: (iso: string) => void
+  /** Night -> the id of the visitor's own booking that covers it. */
+  mine: Map<string, string>
+  selection: Selection | null
+  /** A free night: becomes check-in, one night long. */
+  onPickFree: (iso: string) => void
+  /** A night somebody else has. */
+  onPickTaken: (iso: string) => void
+  /** A night of one of the visitor's own bookings. */
+  onPickMine: (bookingId: string) => void
 }
 
 /**
  * The public booking page's calendar: the same month view as MonthCalendar
- * (same header, grid and day circles), with two-tap range selection instead
- * of the in-app tap-a-day-to-act behaviour.
+ * (same header, grid and day circles), with one-tap selection instead of the
+ * in-app tap-a-day-to-act behaviour.
  *
- * A guest sees only free or taken -- never whether a night is a booking, a
- * hold or an owner's block. Past days, and days more than a year out, are
- * inert. "Today" is the server's date in Tashkent, so a phone set to another
- * timezone still agrees with what the server will accept.
+ * A guest sees four things only: free, not available, the dates they are
+ * choosing, and their own bookings. Never whether somebody else's night is a
+ * booking, a hold or an owner's block. Past days, and days more than a year
+ * out, are inert. "Today" is the server's date in Tashkent, so a phone set to
+ * another timezone still agrees with what the server will accept.
  */
-export default function RangeCalendar({ month, onMonthChange, rules, selection, onPick }: Props) {
+export default function RangeCalendar({
+  month,
+  onMonthChange,
+  rules,
+  mine,
+  selection,
+  onPickFree,
+  onPickTaken,
+  onPickMine,
+}: Props) {
   const { t } = useI18n()
   const weeks = useMemo(() => monthGrid(month), [month])
 
@@ -31,9 +48,10 @@ export default function RangeCalendar({ month, onMonthChange, rules, selection, 
   const firstMonth = startOfMonth(today)
   const lastMonth = startOfMonth(parseISODate(lastCheckIn(rules.today)))
 
-  const { checkIn, checkOut } = selection
-  const inRange = (iso: string) =>
-    checkIn !== null && checkOut !== null && iso > checkIn && iso < checkOut
+  const checkIn = selection?.checkIn ?? null
+  const checkOut = selection?.checkOut ?? null
+  const inRange = (iso: string) => checkIn !== null && checkOut !== null && iso > checkIn && iso < checkOut
+  const covered = (iso: string) => iso === checkIn || iso === checkOut || inRange(iso)
 
   return (
     <div className="card calendar range-calendar">
@@ -53,30 +71,35 @@ export default function RangeCalendar({ month, onMonthChange, rules, selection, 
               }
 
               const isPast = iso < rules.today
-              const taken = rules.taken.has(iso)
-              const pickable = isPickable(iso, selection, rules)
+              const ownBooking = isPast ? undefined : mine.get(iso)
+              const taken = !isPast && !ownBooking && rules.taken.has(iso)
+              const free = !ownBooking && isFreeNight(iso, rules)
               const isStart = iso === checkIn
               const isEnd = iso === checkOut
-              const covered = isStart || isEnd || inRange(iso)
+              const selected = covered(iso)
 
-              // Bridge selected days into one strip, within this row and month.
-              const neighbourCovered = (offset: number) => {
+              // Bridge a strip into one bar, within this row and month: the
+              // selection, or nights of the same own booking.
+              const neighbour = (offset: number) => {
                 const other = week[dayIndex + offset]
-                if (!other || other.getMonth() !== month.getMonth()) return false
-                const otherIso = toISODate(other)
-                return otherIso === checkIn || otherIso === checkOut || inRange(otherIso)
+                return other && other.getMonth() === month.getMonth() ? toISODate(other) : null
               }
-              const ranged = checkIn !== null && checkOut !== null && covered
+              const linked = (offset: number) => {
+                const other = neighbour(offset)
+                if (!other) return false
+                if (selected) return covered(other)
+                return ownBooking !== undefined && mine.get(other) === ownBooking
+              }
+              const strip = selected ? checkIn !== null : ownBooking !== undefined
 
               const classes = [
                 'day',
-                isPast ? 'past' : taken ? 'blocked' : 'available',
-                pickable ? 'pickable' : '',
+                isPast ? 'past' : ownBooking ? 'mine' : taken ? 'blocked' : free ? 'available' : '',
                 isStart ? 'range-start' : '',
                 isEnd ? 'range-end' : '',
                 inRange(iso) ? 'in-range' : '',
-                ranged && !isStart && neighbourCovered(-1) ? 'link-left' : '',
-                ranged && !isEnd && neighbourCovered(1) ? 'link-right' : '',
+                strip && !isStart && linked(-1) ? 'link-left' : '',
+                strip && !isEnd && linked(1) ? 'link-right' : '',
                 isSameDay(date, today) ? 'today' : '',
               ]
                 .filter(Boolean)
@@ -86,23 +109,29 @@ export default function RangeCalendar({ month, onMonthChange, rules, selection, 
                 ? t('public.dayCheckIn', { date: iso })
                 : isEnd
                   ? t('public.dayCheckOut', { date: iso })
-                  : isPast
-                    ? t('calendar.dayUnavailable', { date: iso })
-                    : taken
-                      ? t('public.dayTaken', { date: iso })
-                      : t('calendar.dayAvailable', { date: iso })
+                  : ownBooking
+                    ? t('public.dayMine', { date: iso })
+                    : isPast
+                      ? t('calendar.dayUnavailable', { date: iso })
+                      : taken
+                        ? t('public.dayTaken', { date: iso })
+                        : t('calendar.dayAvailable', { date: iso })
+
+              const tappable = Boolean(ownBooking) || taken || free
 
               return (
                 <button
                   type="button"
                   key={iso}
                   className={classes}
-                  disabled={!pickable}
+                  disabled={!tappable}
                   aria-label={label}
-                  aria-pressed={covered}
+                  aria-pressed={selected}
                   onClick={() => {
                     haptic('light')
-                    onPick(iso)
+                    if (ownBooking) onPickMine(ownBooking)
+                    else if (taken) onPickTaken(iso)
+                    else onPickFree(iso)
                   }}
                 >
                   <span className="day-circle">{date.getDate()}</span>
@@ -122,6 +151,9 @@ export default function RangeCalendar({ month, onMonthChange, rules, selection, 
         </span>
         <span className="legend-item">
           <span className="legend-dot selected" /> {t('public.legendSelected')}
+        </span>
+        <span className="legend-item">
+          <span className="legend-dot mine" /> {t('public.legendMine')}
         </span>
       </div>
     </div>
