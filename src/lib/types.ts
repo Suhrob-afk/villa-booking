@@ -1,9 +1,10 @@
 /**
  * 'pending' is a deposit hold from the public booking page: it occupies its
- * nights only until hold_expires_at. 'expired' is a hold that lapsed -- it
- * holds nothing, and is never a sale or a cancellation.
+ * nights only until hold_expires_at. 'expired' is a hold that lapsed, and
+ * 'rejected' one the owner turned down from the bot -- neither holds nights,
+ * and neither is ever a sale or a cancellation.
  */
-export type BookingStatus = 'confirmed' | 'cancelled' | 'pending' | 'expired'
+export type BookingStatus = 'confirmed' | 'cancelled' | 'pending' | 'expired' | 'rejected'
 /** What a booking's price is in. Deposits are always UZS regardless. */
 export type BookingCurrency = 'uzs' | 'usd'
 export type PricingMode = 'percentage' | 'owner_net'
@@ -57,7 +58,7 @@ export interface User {
   language: Lang
   /**
    * A person can be both -- Maklers who also own a villa or two are common --
-   * or neither, which means they are a client just browsing.
+   * or neither, which means they are a client.
    */
   is_owner: boolean
   is_makler: boolean

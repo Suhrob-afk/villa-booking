@@ -150,7 +150,7 @@ export async function payoutCard(admin: SupabaseClient, villaId: string): Promis
 export interface BookingRow {
   id: string
   villa_id: string
-  status: 'confirmed' | 'cancelled' | 'pending' | 'expired'
+  status: 'confirmed' | 'cancelled' | 'pending' | 'expired' | 'rejected'
   check_in: string
   check_out: string
   total_price: number
@@ -168,8 +168,11 @@ export const BOOKING_COLUMNS =
 /** A visitor's own hold, as the page sees it. */
 export interface PublicHold {
   id: string
-  /** 'expired' also covers a pending row past its expiry that the sweep has not reached. */
-  status: 'pending' | 'expired' | 'confirmed' | 'cancelled'
+  /**
+   * 'expired' also covers a pending row past its expiry that the sweep has not
+   * reached. 'rejected' is the owner tapping Reject in the bot.
+   */
+  status: 'pending' | 'expired' | 'confirmed' | 'cancelled' | 'rejected'
   check_in: string
   check_out: string
   total_price: number

@@ -8,8 +8,12 @@
 //
 // Sets client_marked_paid_at and, on the first tap only, extends the hold to
 // two hours from now so the owner has time to check their card. It never sets
-// deposit_paid: only the owner confirming receipt does that (Phase 3).
+// deposit_paid: only the owner confirming receipt does that, from the bot.
 // The rules are in public.mark_public_hold_paid() (migration 0018).
+//
+// On success the villa owner gets the bot message with the Confirm received /
+// Reject buttons -- once per hold, however often the visitor taps. Telegram
+// failing never fails this request; it is logged as "[owner-notify] FAILED".
 //
 // Secrets: TELEGRAM_BOT_TOKEN. Injected: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
 // Deploy with --no-verify-jwt: the caller proves who they are with initData.
@@ -26,6 +30,7 @@ import {
   type BookingRow,
 } from '../_shared/public-booking.ts'
 import { json } from '../_shared/http.ts'
+import { notifyOwner } from '../_shared/owner-bot.ts'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -70,6 +75,8 @@ Deno.serve(async (req) => {
     const hold = toPublicHold(row, ownerName, card)
 
     if (!live) return json({ code: 'hold_not_live', error: 'hold_not_live', hold }, 409)
+
+    await notifyOwner(admin, row.id, 'deposit_sent')
     return json({ hold })
   } catch (err) {
     console.error('mark-deposit-sent failed:', (err as Error).message)

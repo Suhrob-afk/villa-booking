@@ -72,7 +72,8 @@ const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve
  *              (asks for the phone first if none is on file)
  *   pay     -> the owner's card, a countdown, "I've sent the deposit"
  *   waiting -> sent; the hold is extended while the owner checks
- *   expired / confirmed / declined
+ *   expired / confirmed / declined (rejected by the owner)
+ *   lapsed after paying -> keeps re-checking: the owner may confirm anyway
  */
 export default function PublicVilla() {
   const { villaCode = '' } = useParams<{ villaCode: string }>()
@@ -144,18 +145,25 @@ export default function PublicVilla() {
   const secondsLeft =
     held && hold?.seconds_left != null ? hold.seconds_left - (now - held.receivedAt) / 1000 : null
   const holdLive = hold?.status === 'pending' && secondsLeft !== null && secondsLeft > 0
+  /**
+   * The guest said they paid, but the hold ran out before the owner answered.
+   * The owner can still "Confirm anyway" from the bot while the dates are
+   * free, so the page keeps re-checking rather than giving up.
+   */
+  const lapsedAfterPaying =
+    Boolean(hold?.marked_paid) && !holdLive && (hold?.status === 'pending' || hold?.status === 'expired')
 
   // Tick the countdown, and re-check now and then so the page notices the
-  // owner confirming, declining, or the sweep releasing the hold.
+  // owner confirming, rejecting, or the sweep releasing the hold.
   useEffect(() => {
-    if (!holdLive) return
+    if (!holdLive && !lapsedAfterPaying) return
     const tick = window.setInterval(() => setNow(Date.now()), 1000)
     const poll = window.setInterval(() => void load(true), HOLD_POLL_MS)
     return () => {
       window.clearInterval(tick)
       window.clearInterval(poll)
     }
-  }, [holdLive, load])
+  }, [holdLive, lapsedAfterPaying, load])
 
   const rules = useMemo(
     () => (data ? { today: data.today, taken: unavailableNights(data.unavailable) } : null),
@@ -401,8 +409,24 @@ export default function PublicVilla() {
       )
     }
 
-    // Expired (including a pending hold whose clock just ran out) or declined.
-    const declined = hold.status === 'cancelled'
+    if (lapsedAfterPaying) {
+      return (
+        <Page header={header}>
+          <div className="public-status">
+            <h2>{t('public.expiredPaidTitle')}</h2>
+            <p>{t('public.expiredPaidBody')}</p>
+            <button type="button" className="button button-secondary" onClick={startOver}>
+              {t('public.tryAgain')}
+            </button>
+          </div>
+          {stayCard}
+        </Page>
+      )
+    }
+
+    // Expired (including a pending hold whose clock just ran out), rejected
+    // by the owner from the bot, or cancelled later in the app.
+    const declined = hold.status === 'cancelled' || hold.status === 'rejected'
     return (
       <Page header={header}>
         <div className="public-status">

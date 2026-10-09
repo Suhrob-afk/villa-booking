@@ -35,8 +35,10 @@ Languages: en / ru / uz.
   `status IN ('confirmed','pending')`; half-open ranges, so a check-out day can
   be the next check-in.
 - Booking statuses: `confirmed`, `cancelled`, `pending` (a deposit hold from
-  the public booking page, live only while `hold_expires_at > now()`) and
-  `expired` (a lapsed hold: never revenue, commission **or** a cancellation).
+  the public booking page, live only while `hold_expires_at > now()`),
+  `expired` (a lapsed hold) and `rejected` (the owner tapped Reject in the
+  bot). Neither `expired` nor `rejected` is ever revenue, commission **or** a
+  cancellation.
   App users can't create, edit or confirm holds (`bookings_status_guard`); only
   service-role edge functions do. Any read that shows availability must treat
   pending as occupying nights only while `hold_expires_at > now()`, because an
@@ -45,7 +47,9 @@ Languages: en / ru / uz.
   `villas`, because linked maklers can read the whole villa row.
 - Guard triggers that test `current_user` must be `SECURITY INVOKER`: inside a
   SECURITY DEFINER function `current_user` is the owner (postgres), which made
-  `users_update_guard` and `villas_delete_guard` no-ops until `0016`.
+  `users_update_guard` and `villas_delete_guard` no-ops until `0016`. The
+  booking guards (`bookings_status_guard`, `bookings_update_guard` since
+  `0020`) restrain app users only; server-side writes skip them.
 - Villa removal: delete only with zero bookings, otherwise archive
   (`villas.archived_at`). `villas_delete_guard()` enforces it in the database,
   because `bookings.villa_id` cascades.
@@ -64,8 +68,16 @@ Languages: en / ru / uz.
   Created only through `create_public_hold()` (30 min, max 2 live per
   visitor); "I've sent the deposit" (`mark_public_hold_paid()`) extends the
   hold to two hours from the first tap only and never sets `deposit_paid`.
-  Both functions are executable by `service_role` alone. Confirming a hold
-  must refuse one whose `hold_expires_at` has passed.
+  Both functions are executable by `service_role` alone.
+- Owner confirmation (`0020`): `mark-deposit-sent` sends the owner a bot
+  message with Confirm received / Reject (`bk:c|rc|r:<booking id>`), and
+  `create-public-booking` a heads-up. `telegram-bot-webhook` resolves taps
+  through `confirm_public_hold()` / `reject_public_hold()`, which check the
+  tapper is the villa owner. A lapsed hold is never confirmed silently, only
+  via "Confirm anyway" while its dates are free, the guest marked it paid and
+  check-in is not past. `booking_owner_messages` records each owner message
+  (one per booking and kind); failed sends keep `sent_at` null and are logged
+  as `[owner-notify] FAILED`.
 - pg_cron runs exactly one job, `oikoz-release-expired-holds`, every two
   minutes (`0017`). The exchange rate is still not scheduled; it refreshes on
   demand when the cached row is no longer from today.
