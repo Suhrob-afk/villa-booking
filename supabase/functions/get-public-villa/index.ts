@@ -76,6 +76,7 @@ function worthShowing(hold: PublicHold, row: BookingRow, today: string): boolean
     case 'expired':
       return recent(row.created_at)
     case 'cancelled':
+    case 'rejected':
       return recent(row.updated_at)
     case 'confirmed':
       return row.check_out >= today

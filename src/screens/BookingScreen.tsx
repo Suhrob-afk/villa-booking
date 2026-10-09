@@ -63,6 +63,7 @@ const STATUS_LABEL: Record<Booking['status'], StringKey> = {
   cancelled: 'booking.statusCancelled',
   pending: 'booking.statusPending',
   expired: 'booking.statusExpired',
+  rejected: 'booking.statusRejected',
 }
 
 const STATUS_BADGE: Record<Booking['status'], string> = {
@@ -70,6 +71,7 @@ const STATUS_BADGE: Record<Booking['status'], string> = {
   cancelled: 'badge-danger',
   pending: 'badge-warning',
   expired: 'badge-danger',
+  rejected: 'badge-danger',
 }
 
 /** Local wall-clock time, so the hold's end reads the same as the owner's phone clock. */
@@ -346,9 +348,12 @@ export default function BookingScreen() {
         {isPastStay && !isCancelled && <Alert kind="info">{t('booking.pastDateNotice')}</Alert>}
         {isCancelled && <Alert kind="info">{t('booking.cancelledNotice')}</Alert>}
         {booking?.status === 'pending' && booking.hold_expires_at && (
-          <Alert kind="info">{t('booking.holdNotice', { time: clockTime(booking.hold_expires_at) })}</Alert>
+          <Alert kind="info">
+            {t('booking.holdNotice', { time: clockTime(booking.hold_expires_at) })} {t('booking.holdBotHint')}
+          </Alert>
         )}
         {booking?.status === 'expired' && <Alert kind="info">{t('booking.holdExpiredNotice')}</Alert>}
+        {booking?.status === 'rejected' && <Alert kind="info">{t('booking.holdRejectedNotice')}</Alert>}
         {isOwner && !isNew && !isCancelled && !hold && <Alert kind="info">{t('booking.ownerReadOnly')}</Alert>}
 
         <div className="card card-pad">

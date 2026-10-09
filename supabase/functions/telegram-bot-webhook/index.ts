@@ -15,6 +15,9 @@
 // (Telegram.WebApp.requestContact sends it to the bot as an ordinary message)
 // and saves the phone on their users row -- see savePublicContact().
 //
+// And it handles a villa owner's taps on the Confirm received / Reject buttons
+// that mark-deposit-sent sends them -- see handleBookingCallback().
+//
 // Secrets:
 //   TELEGRAM_BOT_TOKEN       — same bot as the Mini App
 //   MINI_APP_URL             — https URL the "Open App" button opens
@@ -28,6 +31,17 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
 import { timingSafeEqual } from '../_shared/telegram.ts'
+import {
+  botCall,
+  depositMessage,
+  loadBookingContext,
+  notifyGuest,
+  OWNER_COPY,
+  parseBookingCallback,
+  type BookingAction,
+  type Footer,
+  type Lang as OwnerLang,
+} from '../_shared/owner-bot.ts'
 import { COPY, isLang, LANGUAGE_BUTTONS, LANGUAGE_PROMPT, type Lang } from './copy.ts'
 
 const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? ''
@@ -78,12 +92,17 @@ const contactKeyboard = (lang: Lang) => ({
   one_time_keyboard: true,
 })
 
+/**
+ * Client comes first. Its callback_data stays 'id:browsing' (the option was
+ * once labelled "Just browsing") so keyboards already sitting in chats keep
+ * working -- only the labels and the order changed.
+ */
 const identityKeyboard = (lang: Lang) => ({
   inline_keyboard: [
+    [{ text: COPY[lang].identityClient, callback_data: 'id:browsing' }],
     [{ text: COPY[lang].identityOwner, callback_data: 'id:owner' }],
     [{ text: COPY[lang].identityMakler, callback_data: 'id:makler' }],
     [{ text: COPY[lang].identityBoth, callback_data: 'id:both' }],
-    [{ text: COPY[lang].identityBrowsing, callback_data: 'id:browsing' }],
   ],
 })
 
@@ -124,6 +143,8 @@ const langOf = (state: State | null): Lang => (isLang(state?.language) ? state!.
 // ------------------------------------------------------------ completion --
 
 // Neither flag is a real answer, not a missing one: that person is a client.
+// The key 'browsing' is the client, named for the button's old label and kept
+// because it is the callback_data of keyboards already sent.
 // users.role is retired -- the column keeps a default and nothing writes it.
 const IDENTITIES = {
   owner: { is_owner: true, is_makler: false },
@@ -284,6 +305,14 @@ async function handleCallback(cq: Json): Promise<void> {
   const message = cq.message as { chat: { id: number }; message_id: number } | undefined
   if (!message) return
 
+  // The owner's deposit buttons have their own rules about answering and
+  // editing, so they leave before the onboarding handling below.
+  const booking = parseBookingCallback(data)
+  if (booking) {
+    await handleBookingCallback(id, from.id, message, booking.action, booking.bookingId)
+    return
+  }
+
   const chatId = message.chat.id
   await callTelegram('answerCallbackQuery', { callback_query_id: id })
 
@@ -331,7 +360,7 @@ async function handleCallback(cq: Json): Promise<void> {
         await send(chatId, COPY[lang].restartHint)
         return
       }
-      await send(chatId, COPY[lang].roleUpdated, openAppKeyboard(lang))
+      await send(chatId, COPY[lang].roleUpdated(COPY[lang].roleNames[identity]), openAppKeyboard(lang))
       return
     }
 
@@ -346,6 +375,104 @@ async function handleCallback(cq: Json): Promise<void> {
       return
     }
     await send(chatId, COPY[lang].done(result.name, result.oikozId), openAppKeyboard(lang))
+  }
+}
+
+/**
+ * A tap on Confirm received / Confirm anyway / Reject in the owner's deposit
+ * message.
+ *
+ * Who may act is decided in the database: confirm_public_hold() and
+ * reject_public_hold() (migration 0020) compare the tapper's Telegram id with
+ * the villa owner's, lock the row, and refuse to touch anything else. A tap
+ * by anybody else is answered silently -- just to stop the button's spinner --
+ * and changes nothing, not even the message.
+ *
+ * Otherwise the message is rebuilt from the booking as it now stands and
+ * edited in place, so a double tap, or a tap on a hold the sweep has already
+ * released, shows the real state rather than acting twice. The guest is told
+ * only by the call that actually confirmed or rejected.
+ */
+async function handleBookingCallback(
+  callbackId: string,
+  tapperId: number,
+  message: { chat: { id: number }; message_id: number },
+  action: BookingAction,
+  bookingId: string,
+): Promise<void> {
+  const answer = (text?: string) =>
+    botCall('answerCallbackQuery', { callback_query_id: callbackId, ...(text ? { text } : {}) })
+
+  const { data: tapper } = await admin.from('users').select('language').eq('telegram_id', tapperId).maybeSingle()
+  const lang: OwnerLang = isLang(tapper?.language) ? (tapper!.language as OwnerLang) : 'en'
+  const copy = OWNER_COPY[lang]
+
+  const { data, error } =
+    action === 'r'
+      ? await admin.rpc('reject_public_hold', { p_owner_telegram_id: tapperId, p_booking_id: bookingId })
+      : await admin.rpc('confirm_public_hold', {
+          p_owner_telegram_id: tapperId,
+          p_booking_id: bookingId,
+          p_reconfirm: action === 'rc',
+        })
+
+  if (error) {
+    console.error(`[owner-confirm] ${action} on booking ${bookingId} failed: ${error.message}`)
+    await answer(copy.toastFailed)
+    return
+  }
+
+  const result = data as { outcome: string; status?: string }
+  if (result.outcome === 'not_owner' || result.outcome === 'not_found') {
+    if (result.outcome === 'not_owner') {
+      console.warn(`[owner-confirm] ignored ${action} on booking ${bookingId} from non-owner telegram ${tapperId}`)
+    }
+    await answer()
+    return
+  }
+
+  let footer: Footer
+  let toast: string
+  switch (result.outcome) {
+    case 'confirmed':
+      footer = 'confirmed'
+      toast = copy.toastConfirmed
+      break
+    case 'rejected':
+      footer = 'rejected'
+      toast = copy.toastRejected
+      break
+    case 'expired_free':
+    case 'expired_taken':
+    case 'expired_closed':
+      footer = result.outcome
+      toast = copy.toastExpired
+      break
+    default: // already_handled
+      footer = result.status === 'confirmed' ? 'confirmed' : result.status === 'cancelled' ? 'cancelled' : 'rejected'
+      toast = copy.toastAlreadyHandled
+  }
+
+  await answer(toast)
+
+  const ctx = await loadBookingContext(admin, bookingId)
+  if (!ctx) return
+
+  const edited = depositMessage(ctx, footer)
+  const edit = await botCall('editMessageText', {
+    chat_id: message.chat.id,
+    message_id: message.message_id,
+    text: edited.text,
+    parse_mode: 'HTML',
+    reply_markup: edited.reply_markup,
+  })
+  // "message is not modified" is a repeat tap on an already-updated message.
+  if (!edit.ok && !edit.error.includes('message is not modified')) {
+    console.error(`[owner-confirm] could not edit the message for booking ${bookingId}: ${edit.error}`)
+  }
+
+  if (result.outcome === 'confirmed' || result.outcome === 'rejected') {
+    await notifyGuest(ctx, result.outcome)
   }
 }
 

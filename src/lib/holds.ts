@@ -20,7 +20,7 @@ export function occupiesNights(booking: Booking, now = Date.now()): boolean {
 
 /** Holds are created and resolved server-side only; the app shows them read-only. */
 export function isHold(booking: Booking): boolean {
-  return booking.status === 'pending' || booking.status === 'expired'
+  return booking.status === 'pending' || booking.status === 'expired' || booking.status === 'rejected'
 }
 
 /** The share link an owner pastes into an Instagram bio or a channel post. */

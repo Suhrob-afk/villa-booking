@@ -37,11 +37,14 @@ interface Copy {
   identityOwner: string
   identityMakler: string
   identityBoth: string
-  identityBrowsing: string
+  identityClient: string
   done: (name: string, oikozId: string) => string
   openApp: string
   alreadyDone: (name: string, oikozId: string) => string
-  roleUpdated: string
+  /** Names the role just chosen, e.g. "Your role is now: Client." */
+  roleUpdated: (role: string) => string
+  /** Each identity as a plain noun, for roleUpdated. Keyed like the callback data. */
+  roleNames: Record<'browsing' | 'owner' | 'makler' | 'both', string>
   languageUpdated: string
   restartHint: string
   unexpected: string
@@ -61,13 +64,14 @@ export const COPY: Record<Lang, Copy> = {
     identityOwner: '🏡 Villa Owner',
     identityMakler: '🤝 Makler',
     identityBoth: '🏡🤝 Both',
-    identityBrowsing: '👀 Just browsing',
+    identityClient: '👤 Client',
     done: (name, oikozId) =>
       `You’re all set, ${name}.\n\nYour Oikoz reference: ${oikozId}\n\nTap below to open the app.`,
     openApp: 'Open App',
     alreadyDone: (name, oikozId) =>
       `Welcome back, ${name}. Your Oikoz ID is ${oikozId}.\n\nTap below to open the app.`,
-    roleUpdated: 'Your role has been updated.',
+    roleUpdated: (role) => `Your role is now: ${role}.`,
+    roleNames: { browsing: 'Client', owner: 'Villa Owner', makler: 'Makler', both: 'Villa Owner and Makler' },
     languageUpdated: 'Language updated — I’ll write to you in English from now on.',
     restartHint: 'Send /start to begin.',
     unexpected: 'Let’s finish the step above first.',
@@ -86,13 +90,14 @@ export const COPY: Record<Lang, Copy> = {
     identityOwner: '🏡 Владелец виллы',
     identityMakler: '🤝 Маклер',
     identityBoth: '🏡🤝 И то, и другое',
-    identityBrowsing: '👀 Просто смотрю',
+    identityClient: '👤 Клиент',
     done: (name, oikozId) =>
       `Готово, ${name}.\n\nВаш номер Oikoz: ${oikozId}\n\nНажмите кнопку ниже, чтобы открыть приложение.`,
     openApp: 'Открыть приложение',
     alreadyDone: (name, oikozId) =>
       `С возвращением, ${name}. Ваш Oikoz ID: ${oikozId}.\n\nНажмите кнопку ниже, чтобы открыть приложение.`,
-    roleUpdated: 'Ваша роль обновлена.',
+    roleUpdated: (role) => `Ваша роль теперь: ${role}.`,
+    roleNames: { browsing: 'Клиент', owner: 'Владелец виллы', makler: 'Маклер', both: 'Владелец виллы и маклер' },
     languageUpdated: 'Язык обновлён — теперь я буду писать вам по-русски.',
     restartHint: 'Отправьте /start, чтобы начать.',
     unexpected: 'Давайте сначала завершим текущий шаг.',
@@ -111,13 +116,14 @@ export const COPY: Record<Lang, Copy> = {
     identityOwner: '🏡 Villa egasi',
     identityMakler: '🤝 Makler',
     identityBoth: '🏡🤝 Ikkalasi ham',
-    identityBrowsing: '👀 Shunchaki ko‘rmoqchiman',
+    identityClient: '👤 Mijoz',
     done: (name, oikozId) =>
       `Hammasi tayyor, ${name}.\n\nSizning Oikoz raqamingiz: ${oikozId}\n\nIlovani ochish uchun quyidagi tugmani bosing.`,
     openApp: 'Ilovani ochish',
     alreadyDone: (name, oikozId) =>
       `Xush kelibsiz, ${name}. Sizning Oikoz ID: ${oikozId}.\n\nIlovani ochish uchun quyidagi tugmani bosing.`,
-    roleUpdated: 'Rolingiz yangilandi.',
+    roleUpdated: (role) => `Endi sizning rolingiz: ${role}.`,
+    roleNames: { browsing: 'Mijoz', owner: 'Villa egasi', makler: 'Makler', both: 'Villa egasi va makler' },
     languageUpdated: 'Til yangilandi — endi sizga o‘zbekcha yozaman.',
     restartHint: 'Boshlash uchun /start yuboring.',
     unexpected: 'Avval yuqoridagi bosqichni tugatamiz.',

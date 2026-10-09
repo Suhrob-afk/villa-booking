@@ -16,6 +16,9 @@
 // the two dates: price, currency, deposit, credited makler, the visitor's
 // name and phone are all read server-side.
 //
+// The villa owner gets a short heads-up from the bot (no buttons). Telegram
+// failing never fails the booking; it is logged as "[owner-notify] FAILED".
+//
 // Secrets: TELEGRAM_BOT_TOKEN. Injected: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
 // Deploy with --no-verify-jwt: the caller proves who they are with initData.
 // ============================================================================
@@ -33,6 +36,7 @@ import {
   type ErrorCode,
 } from '../_shared/public-booking.ts'
 import { json } from '../_shared/http.ts'
+import { notifyOwner } from '../_shared/owner-bot.ts'
 import { isVillaCode } from '../_shared/telegram.ts'
 
 const STATUS: Partial<Record<ErrorCode, number>> = {
@@ -84,6 +88,7 @@ Deno.serve(async (req) => {
       payoutCard(admin, row.villa_id),
     ])
 
+    await notifyOwner(admin, row.id, 'hold_created')
     return json({ hold: toPublicHold(row, ownerName, card) })
   } catch (err) {
     console.error('create-public-booking failed:', (err as Error).message)

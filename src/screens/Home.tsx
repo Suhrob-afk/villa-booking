@@ -100,7 +100,7 @@ export default function Home() {
         }
       />
       <main className="screen">
-        {/* A client: registered, browsing, no villas on either side. */}
+        {/* A client: registered, no villas on either side. */}
         {isClient ? (
           <div className="center-state">
             <h2>{t('home.clientTitle')}</h2>

@@ -449,6 +449,10 @@ const en = {
     'A guest from your booking link is holding these dates until {time} while they transfer the deposit. If it isn’t confirmed by then, the dates are released automatically.',
   'booking.holdExpiredNotice':
     'This hold expired before the deposit was confirmed. The dates were released, and it counts as neither a booking nor a cancellation.',
+  'booking.statusRejected': 'Rejected',
+  'booking.holdBotHint': 'When the guest says they’ve sent the deposit, the bot will message you to confirm or reject it.',
+  'booking.holdRejectedNotice':
+    'You rejected this hold from the bot. The dates were released, and it counts as neither a booking nor a cancellation.',
   'error.holdReadOnly': 'This is a deposit hold from your booking link — it can’t be changed here.',
 
   // ------------------------------------------------ public booking page --
@@ -501,6 +505,9 @@ const en = {
   'public.confirmedBody': 'The owner has received your deposit. See you on {date}!',
   'public.expiredTitle': 'Reservation expired',
   'public.expiredBody': 'This reservation expired, please try again.',
+  'public.expiredPaidTitle': 'Waiting time ran out',
+  'public.expiredPaidBody':
+    'The owner hasn’t confirmed your deposit yet. If the dates are still free they can still confirm it, and this page will update. Otherwise, the owner can reach you on the number you shared.',
   'public.declinedTitle': 'Reservation not confirmed',
   'public.declinedBody': 'The owner couldn’t confirm this reservation, and the dates were released. Please try again.',
   'public.tryAgain': 'Choose dates again',
@@ -869,6 +876,10 @@ const ru: Record<StringKey, string> = {
     'Гость по вашей ссылке удерживает эти даты до {time}, пока переводит депозит. Если к этому времени депозит не подтверждён, даты освободятся автоматически.',
   'booking.holdExpiredNotice':
     'Удержание истекло до подтверждения депозита. Даты освобождены; это не считается ни бронью, ни отменой.',
+  'booking.statusRejected': 'Отклонено',
+  'booking.holdBotHint': 'Когда гость сообщит, что отправил депозит, бот пришлёт вам сообщение, чтобы подтвердить или отклонить его.',
+  'booking.holdRejectedNotice':
+    'Вы отклонили это удержание в боте. Даты освобождены; это не считается ни бронью, ни отменой.',
   'error.holdReadOnly': 'Это удержание с депозитом по вашей ссылке — изменить его здесь нельзя.',
 
   // ------------------------------------------------ public booking page --
@@ -921,6 +932,9 @@ const ru: Record<StringKey, string> = {
   'public.confirmedBody': 'Владелец получил ваш депозит. Ждём вас {date}!',
   'public.expiredTitle': 'Бронь истекла',
   'public.expiredBody': 'Срок этой брони истёк, попробуйте ещё раз.',
+  'public.expiredPaidTitle': 'Время ожидания вышло',
+  'public.expiredPaidBody':
+    'Владелец ещё не подтвердил ваш депозит. Если даты всё ещё свободны, он может подтвердить его, и эта страница обновится. Иначе владелец может связаться с вами по номеру, которым вы поделились.',
   'public.declinedTitle': 'Бронь не подтверждена',
   'public.declinedBody': 'Владелец не смог подтвердить эту бронь, даты освобождены. Попробуйте ещё раз.',
   'public.tryAgain': 'Выбрать даты заново',
@@ -1287,6 +1301,10 @@ const uz: Record<StringKey, string> = {
     'Havolangiz orqali kelgan mehmon depozitni o‘tkazguncha bu sanalarni soat {time} gacha band qilib turibdi. Shu vaqtgacha tasdiqlanmasa, sanalar avtomatik ravishda bo‘shatiladi.',
   'booking.holdExpiredNotice':
     'Depozit tasdiqlanishidan oldin band qilish muddati tugadi. Sanalar bo‘shatildi; bu bron ham, bekor qilish ham hisoblanmaydi.',
+  'booking.statusRejected': 'Rad etilgan',
+  'booking.holdBotHint': 'Mehmon depozitni yuborganini aytganida, bot uni tasdiqlash yoki rad etish uchun sizga xabar yuboradi.',
+  'booking.holdRejectedNotice':
+    'Siz bu band qilishni botda rad etdingiz. Sanalar bo‘shatildi; bu bron ham, bekor qilish ham hisoblanmaydi.',
   'error.holdReadOnly': 'Bu havolangiz orqali qilingan depozitli band qilish — uni bu yerda o‘zgartirib bo‘lmaydi.',
 
   // ------------------------------------------------ public booking page --
@@ -1339,6 +1357,9 @@ const uz: Record<StringKey, string> = {
   'public.confirmedBody': 'Egasi depozitingizni oldi. {date} kuni sizni kutamiz!',
   'public.expiredTitle': 'Bron muddati tugadi',
   'public.expiredBody': 'Bu bronning muddati tugadi, qaytadan urinib ko‘ring.',
+  'public.expiredPaidTitle': 'Kutish vaqti tugadi',
+  'public.expiredPaidBody':
+    'Egasi hali depozitingizni tasdiqlamadi. Agar sanalar hali bo‘sh bo‘lsa, u baribir tasdiqlashi mumkin va bu sahifa yangilanadi. Aks holda egasi siz ulashgan raqam orqali siz bilan bog‘lana oladi.',
   'public.declinedTitle': 'Bron tasdiqlanmadi',
   'public.declinedBody': 'Egasi bu bronni tasdiqlay olmadi, sanalar bo‘shatildi. Qaytadan urinib ko‘ring.',
   'public.tryAgain': 'Sanalarni qayta tanlash',

@@ -36,7 +36,7 @@ export interface DateRange {
 
 export interface PublicHold {
   id: string
-  status: 'pending' | 'expired' | 'confirmed' | 'cancelled'
+  status: 'pending' | 'expired' | 'confirmed' | 'cancelled' | 'rejected'
   check_in: string
   check_out: string
   total_price: number
