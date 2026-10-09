@@ -4,7 +4,13 @@ interface TelegramWebApp {
   initData: string
   initDataUnsafe?: {
     user?: { id: number; first_name?: string; last_name?: string; username?: string; language_code?: string }
+    /** The `startapp` value of the t.me link that opened the Mini App. */
+    start_param?: string
   }
+  version?: string
+  isVersionAtLeast?(version: string): boolean
+  /** Bot API 6.9+. Shares the phone with the BOT; the page only learns whether it was sent. */
+  requestContact?(callback: (shared: boolean) => void): void
   colorScheme?: 'light' | 'dark'
   ready(): void
   expand(): void
@@ -51,6 +57,34 @@ export function isTelegramClient(): boolean {
 export function telegramLanguageCode(): string | null {
   const code = tg()?.initDataUnsafe?.user?.language_code
   return typeof code === 'string' && code ? code.slice(0, 2).toLowerCase() : null
+}
+
+/**
+ * The villa code a public booking link opened the app with
+ * (t.me/oikoz_villa_bot/open?startapp=villa_id0001), or null. Read from the
+ * unverified copy only to pick the first screen -- every server call sends
+ * the signed initData, where the same value is checked.
+ */
+export function launchVillaCode(): string | null {
+  const param = tg()?.initDataUnsafe?.start_param
+  return typeof param === 'string' && /^villa_id[0-9]{4,}$/.test(param) ? param : null
+}
+
+/** Whether this Telegram client can show the native "share phone" prompt. */
+export function canRequestContact(): boolean {
+  const app = tg()
+  return Boolean(app?.requestContact && app.isVersionAtLeast?.('6.9'))
+}
+
+/**
+ * Shows Telegram's native phone-sharing prompt. Resolves true if the person
+ * shared. The number itself goes to the bot as a message, never to the page:
+ * telegram-bot-webhook saves it, and the caller polls the server for it.
+ */
+export function requestContact(): Promise<boolean> {
+  const app = tg()
+  if (!app?.requestContact) return Promise.resolve(false)
+  return new Promise((resolve) => app.requestContact!((shared) => resolve(Boolean(shared))))
 }
 
 export function colorScheme(): 'light' | 'dark' {

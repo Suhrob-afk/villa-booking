@@ -64,3 +64,17 @@ export async function callTelegramAuth(payload: {
   if (!response.ok) throw new Error(body.error ?? `Sign-in failed (${response.status})`)
   return body
 }
+
+/**
+ * POSTs to an Edge Function that authenticates the caller itself (the public
+ * booking functions verify Telegram initData), returning the parsed body and
+ * status whether or not the call succeeded. Network failures still throw.
+ */
+export async function callEdgeFunction<T>(name: string, body: unknown): Promise<{ status: number; body: T }> {
+  const response = await fetch(`${url}/functions/v1/${name}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: anonKey, Authorization: `Bearer ${anonKey}` },
+    body: JSON.stringify(body),
+  })
+  return { status: response.status, body: (await response.json().catch(() => ({}))) as T }
+}

@@ -45,6 +45,8 @@ interface Copy {
   languageUpdated: string
   restartHint: string
   unexpected: string
+  phoneSaved: string
+  phoneSaveFailed: string
 }
 
 export const COPY: Record<Lang, Copy> = {
@@ -69,6 +71,8 @@ export const COPY: Record<Lang, Copy> = {
     languageUpdated: 'Language updated — I’ll write to you in English from now on.',
     restartHint: 'Send /start to begin.',
     unexpected: 'Let’s finish the step above first.',
+    phoneSaved: 'Thanks — your number is saved. Go back to the booking page to finish your reservation.',
+    phoneSaveFailed: 'Sorry, I couldn’t save your number. Please go back to the booking page and try again.',
   },
 
   ru: {
@@ -92,6 +96,8 @@ export const COPY: Record<Lang, Copy> = {
     languageUpdated: 'Язык обновлён — теперь я буду писать вам по-русски.',
     restartHint: 'Отправьте /start, чтобы начать.',
     unexpected: 'Давайте сначала завершим текущий шаг.',
+    phoneSaved: 'Спасибо — номер сохранён. Вернитесь на страницу бронирования, чтобы завершить бронь.',
+    phoneSaveFailed: 'Не удалось сохранить номер. Вернитесь на страницу бронирования и попробуйте ещё раз.',
   },
 
   uz: {
@@ -115,5 +121,7 @@ export const COPY: Record<Lang, Copy> = {
     languageUpdated: 'Til yangilandi — endi sizga o‘zbekcha yozaman.',
     restartHint: 'Boshlash uchun /start yuboring.',
     unexpected: 'Avval yuqoridagi bosqichni tugatamiz.',
+    phoneSaved: 'Rahmat — raqamingiz saqlandi. Bronni yakunlash uchun bron sahifasiga qayting.',
+    phoneSaveFailed: 'Raqamingizni saqlab bo‘lmadi. Bron sahifasiga qaytib, qaytadan urinib ko‘ring.',
   },
 }

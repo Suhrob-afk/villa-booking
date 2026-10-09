@@ -1203,3 +1203,103 @@ body.is-offline .topbar { top: 28px; }
   background: var(--warning-soft);
   color: var(--warning-text);
 }
+
+/* -------------------------------------------------- public booking page -- */
+
+.icon-button:disabled { opacity: 0.35; cursor: default; }
+
+/* No tab bar here, so none of the room .screen keeps for one. */
+.public-screen { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+.public-screen .alert { margin-top: 12px; }
+.public-screen .summary { margin: 0; }
+
+.public-host { margin: 0 0 10px; color: var(--text-muted); font-size: 14px; }
+.public-intro .field-hint { margin-top: 10px; }
+
+.public-step {
+  margin: 16px 4px 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.public-reserve { margin-top: 16px; }
+
+/* Range selection. Taken nights reuse the calendar's grey "blocked" look;
+   the chosen stay is solid accent at both ends with a soft strip between. */
+.range-calendar .day.blocked,
+.range-calendar .day.available { cursor: default; }
+.range-calendar .day.pickable { cursor: pointer; }
+
+.range-calendar .calendar-grid .day.in-range .day-circle {
+  background: var(--accent-soft);
+  color: var(--accent-soft-text);
+}
+
+.range-calendar .calendar-grid .day.range-start .day-circle,
+.range-calendar .calendar-grid .day.range-end .day-circle {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+
+.range-calendar .calendar-grid .day.link-left::before,
+.range-calendar .calendar-grid .day.link-right::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: min(82%, 44px);
+  width: 58%;
+  background: var(--accent-soft);
+}
+.range-calendar .calendar-grid .day.link-left::before { left: -1px; }
+.range-calendar .calendar-grid .day.link-right::after { right: -1px; }
+
+.legend-dot.selected { background: var(--accent); }
+
+.public-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 8px 16px;
+  text-align: center;
+}
+.public-status h2 { margin: 0; font-size: 18px; font-weight: 700; }
+.public-status p { margin: 0; color: var(--text-muted); font-size: 14px; max-width: 340px; }
+.public-status .button { width: auto; margin-top: 8px; padding-left: 20px; padding-right: 20px; }
+
+.public-countdown {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--warning-text) !important;
+}
+
+.public-pay-intro { margin: 0 0 12px; font-size: 14px; }
+
+.public-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px;
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+.public-card-label { font-size: 12px; color: var(--text-muted); }
+.public-card-number {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  user-select: all;
+  -webkit-user-select: all;
+}
+.public-card-owner { font-size: 13px; color: var(--text-muted); }
+
+.powered-by {
+  margin: 28px 0 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-faint);
+}

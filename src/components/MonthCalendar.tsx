@@ -44,6 +44,57 @@ interface Props {
 }
 
 /**
+ * Month title, previous/next buttons and the weekday row. Shared with
+ * RangeCalendar so the public booking page reads as the same calendar.
+ * A missing handler disables that button (the public page stops at today's
+ * month and a year ahead).
+ */
+export function CalendarHead({
+  month,
+  onPrevMonth,
+  onNextMonth,
+}: {
+  month: Date
+  onPrevMonth?: () => void
+  onNextMonth?: () => void
+}) {
+  const { lang, t } = useI18n()
+  return (
+    <>
+      <div className="calendar-head">
+        <span className="calendar-month">{monthLabel(month, lang)}</span>
+        <div className="calendar-nav">
+          <button
+            type="button"
+            className="icon-button"
+            onClick={onPrevMonth}
+            disabled={!onPrevMonth}
+            aria-label={t('calendar.prevMonth')}
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            onClick={onNextMonth}
+            disabled={!onNextMonth}
+            aria-label={t('calendar.nextMonth')}
+          >
+            ›
+          </button>
+        </div>
+      </div>
+
+      <div className="calendar-weekdays">
+        {weekdayLabels(lang).map((label) => (
+          <span key={label}>{label.slice(0, 1)}</span>
+        ))}
+      </div>
+    </>
+  )
+}
+
+/**
  * Calendly-style month view.
  *
  * Every day is a circle: light blue = available, dark blue = booked, amber =
@@ -63,7 +114,7 @@ export default function MonthCalendar({
   onSelectBooking,
   onSelectBlock,
 }: Props) {
-  const { lang, t } = useI18n()
+  const { t } = useI18n()
   const today = startOfToday()
   const weeks = useMemo(() => monthGrid(month), [month])
 
@@ -89,23 +140,7 @@ export default function MonthCalendar({
 
   return (
     <div className="card calendar">
-      <div className="calendar-head">
-        <span className="calendar-month">{monthLabel(month, lang)}</span>
-        <div className="calendar-nav">
-          <button type="button" className="icon-button" onClick={onPrevMonth} aria-label={t('calendar.prevMonth')}>
-            ‹
-          </button>
-          <button type="button" className="icon-button" onClick={onNextMonth} aria-label={t('calendar.nextMonth')}>
-            ›
-          </button>
-        </div>
-      </div>
-
-      <div className="calendar-weekdays">
-        {weekdayLabels(lang).map((label) => (
-          <span key={label}>{label.slice(0, 1)}</span>
-        ))}
-      </div>
+      <CalendarHead month={month} onPrevMonth={onPrevMonth} onNextMonth={onNextMonth} />
 
       <div className="calendar-grid">
         {weeks.map((week, weekIndex) => (

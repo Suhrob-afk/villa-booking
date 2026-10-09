@@ -49,10 +49,23 @@ Languages: en / ru / uz.
 - Villa removal: delete only with zero bookings, otherwise archive
   (`villas.archived_at`). `villas_delete_guard()` enforces it in the database,
   because `bookings.villa_id` cascades.
-- Edge functions: `telegram-auth` (verifies initData HMAC, issues session),
-  `telegram-bot-webhook` (onboarding, `/role`, `/language`), `link-manager`,
-  `exchange-rate` (CBU USD/UZS rate, read-through cached in `exchange_rates`),
-  `admin-users`.
+- Edge functions: `telegram-auth` (verifies initData HMAC, issues session;
+  registers a bare client when opened from a live villa's booking link),
+  `telegram-bot-webhook` (onboarding, `/role`, `/language`, and saving a phone
+  shared from the public page), `link-manager`, `exchange-rate` (CBU USD/UZS
+  rate, read-through cached in `exchange_rates`), `admin-users`, and the
+  public booking page's `get-public-villa`, `create-public-booking` and
+  `mark-deposit-sent`. Shared code lives in `supabase/functions/_shared/`;
+  every function importing it must be redeployed when it changes.
+- `telegram-bot-webhook` fails closed: it refuses every update unless
+  `TELEGRAM_WEBHOOK_SECRET` is set and matches the `secret_token` given to
+  `setWebhook`, because it writes phone numbers.
+- Public holds: `bookings.client_user_id` is the visitor who made the hold.
+  Created only through `create_public_hold()` (30 min, max 2 live per
+  visitor); "I've sent the deposit" (`mark_public_hold_paid()`) extends the
+  hold to two hours from the first tap only and never sets `deposit_paid`.
+  Both functions are executable by `service_role` alone. Confirming a hold
+  must refuse one whose `hold_expires_at` has passed.
 - pg_cron runs exactly one job, `oikoz-release-expired-holds`, every two
   minutes (`0017`). The exchange rate is still not scheduled; it refreshes on
   demand when the cached row is no longer from today.
