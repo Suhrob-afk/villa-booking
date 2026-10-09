@@ -1,4 +1,9 @@
-export type BookingStatus = 'confirmed' | 'cancelled'
+/**
+ * 'pending' is a deposit hold from the public booking page: it occupies its
+ * nights only until hold_expires_at. 'expired' is a hold that lapsed -- it
+ * holds nothing, and is never a sale or a cancellation.
+ */
+export type BookingStatus = 'confirmed' | 'cancelled' | 'pending' | 'expired'
 /** What a booking's price is in. Deposits are always UZS regardless. */
 export type BookingCurrency = 'uzs' | 'usd'
 export type PricingMode = 'percentage' | 'owner_net'
@@ -79,6 +84,12 @@ export interface Villa {
    */
   archived_at: string | null
   capacity: number | null
+  /**
+   * Who is credited on this villa's public/channel bookings by default. Null
+   * means those bookings credit nobody. The card number is NOT on this row:
+   * it lives in villa_payout_details, readable by the owner alone.
+   */
+  default_channel_makler_id: string | null
   created_at: string
 }
 
@@ -111,6 +122,10 @@ export interface Booking {
   owner_payout: number
   commission_status: CommissionStatus
   status: BookingStatus
+  /** Set only while status is 'pending'. */
+  hold_expires_at: string | null
+  /** When the visitor tapped "I've sent the deposit". */
+  client_marked_paid_at: string | null
   notes: string | null
   created_at: string
   updated_at: string

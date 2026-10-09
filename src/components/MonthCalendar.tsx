@@ -8,6 +8,7 @@ import {
   toISODate,
   weekdayLabels,
 } from '../lib/dates'
+import { isActiveHold } from '../lib/holds'
 import { useI18n } from '../lib/i18n'
 import { haptic } from '../lib/telegram'
 import type { BlockedDate, Booking } from '../lib/types'
@@ -18,6 +19,8 @@ import type { BlockedDate, Booking } from '../lib/types'
  */
 type DayState =
   | { kind: 'booked'; id: string; booking: Booking }
+  /** A live deposit hold from the public booking page: taken, not yet sold. */
+  | { kind: 'held'; id: string; booking: Booking }
   | { kind: 'blocked'; id: string; block: BlockedDate }
 
 interface Props {
@@ -43,8 +46,8 @@ interface Props {
 /**
  * Calendly-style month view.
  *
- * Every day is a circle: light blue = available, dark blue = booked, grey =
- * blocked by the owner. Runs of the same booking or block are bridged into one
+ * Every day is a circle: light blue = available, dark blue = booked, amber =
+ * held for a guest paying the deposit, grey = blocked by the owner. Runs of the same booking or block are bridged into one
  * solid strip. A stay covers the nights [check_in, check_out) and a block
  * covers [start_date, end_date), so in both cases the end day stays free.
  */
@@ -71,14 +74,18 @@ export default function MonthCalendar({
         map.set(toISODate(day), { kind: 'blocked', id: block.id, block })
       }
     }
+    const now = Date.now()
     for (const booking of bookings) {
-      if (booking.status !== 'confirmed') continue
+      const kind = booking.status === 'confirmed' ? 'booked' : isActiveHold(booking, now) ? 'held' : null
+      if (!kind) continue
       for (const night of nightsBetween(booking.check_in, booking.check_out)) {
-        map.set(toISODate(night), { kind: 'booked', id: booking.id, booking })
+        map.set(toISODate(night), { kind, id: booking.id, booking })
       }
     }
     return map
   }, [bookings, blocks])
+
+  const hasHolds = useMemo(() => [...dayStates.values()].some((state) => state.kind === 'held'), [dayStates])
 
   return (
     <div className="card calendar">
@@ -148,7 +155,9 @@ export default function MonthCalendar({
               const interactive = Boolean(state) || isFree || isLoggable
 
               const label = state
-                ? state.kind === 'booked'
+                ? state.kind === 'held'
+                  ? t('calendar.dayHeld', { date: iso })
+                  : state.kind === 'booked'
                   ? state.booking.client_name.trim()
                     ? t('calendar.dayBooked', { date: iso, name: state.booking.client_name })
                     : t('calendar.dayBookedNoName', { date: iso })
@@ -169,7 +178,7 @@ export default function MonthCalendar({
                   onClick={() => {
                     if (!interactive) return
                     haptic('light')
-                    if (state?.kind === 'booked') onSelectBooking(state.booking)
+                    if (state?.kind === 'booked' || state?.kind === 'held') onSelectBooking(state.booking)
                     else if (state?.kind === 'blocked') onSelectBlock(state.block)
                     else if (isLoggable) onSelectPastDay?.(date)
                     else onSelectDay?.(date)
@@ -190,6 +199,11 @@ export default function MonthCalendar({
         <span className="legend-item">
           <span className="legend-dot booked" /> {t('calendar.legendBooked')}
         </span>
+        {hasHolds && (
+          <span className="legend-item">
+            <span className="legend-dot held" /> {t('calendar.legendHeld')}
+          </span>
+        )}
         <span className="legend-item">
           <span className="legend-dot blocked" /> {t('calendar.legendBlocked')}
         </span>
