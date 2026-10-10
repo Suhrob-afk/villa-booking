@@ -409,6 +409,28 @@ export function fetchBookings(villaId: string) {
   return cached(`bookings:${villaId}`, () => loadBookings(villaId))
 }
 
+/** The guest behind a public-page booking: who they are on Telegram. */
+export interface BookingClient {
+  booking_id: string
+  telegram_name: string | null
+  /** Without the @. Null if they have none, or have not opened the app since 0022. */
+  telegram_username: string | null
+}
+
+/**
+ * Telegram name and username for each of a villa's public-page bookings. The
+ * guest's users row is outside what users_select lets an owner or makler
+ * read, so this goes through villa_booking_clients(), which hands out only
+ * those two fields and only for bookings the caller can already see.
+ */
+async function loadBookingClients(villaId: string): Promise<BookingClient[]> {
+  return supabase.rpc('villa_booking_clients', { p_villa_id: villaId }).then(unwrap<BookingClient[]>)
+}
+
+export function fetchBookingClients(villaId: string) {
+  return cached(`bookingclients:${villaId}`, () => loadBookingClients(villaId))
+}
+
 export function fetchBooking(bookingId: string) {
   return cached(`booking:${bookingId}`, () => loadBooking(bookingId))
 }

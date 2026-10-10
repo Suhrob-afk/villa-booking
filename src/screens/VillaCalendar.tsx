@@ -2,7 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import GearIcon from '../components/GearIcon'
 import MonthCalendar from '../components/MonthCalendar'
-import { createBlock, deleteBlock, fetchBlockedDates, fetchBookings, fetchVilla } from '../lib/api'
+import PencilIcon from '../components/PencilIcon'
+import {
+  createBlock,
+  deleteBlock,
+  fetchBlockedDates,
+  fetchBookingClients,
+  fetchBookings,
+  fetchVilla,
+  type BookingClient,
+} from '../lib/api'
 import { useAuth } from '../lib/auth'
 import {
   addDays,
@@ -19,7 +28,7 @@ import {
 import { bookingTitle, currencyCode, DEPOSIT_CURRENCY, formatMoney, formatMoneyGroups } from '../lib/format'
 import { useI18n } from '../lib/i18n'
 import { MONTHS, WEEKDAYS_LONG } from '../lib/strings'
-import { confirmAction, notify } from '../lib/telegram'
+import { confirmAction, notify, openTelegramLink } from '../lib/telegram'
 import { useBackButton } from '../lib/useBackButton'
 import { BLOCK_REASONS, type BlockedDate, type BlockReason, type Booking, type Villa } from '../lib/types'
 import { Empty, ErrorState, Loading, TopBar } from '../components/ui'
@@ -38,6 +47,10 @@ export default function VillaCalendar() {
   const [selectedISO, setSelectedISO] = useState<string | null>(null)
   /** A blocked day that was tapped. */
   const [selectedBlock, setSelectedBlock] = useState<BlockedDate | null>(null)
+  /** A booked or held night that was tapped: any night of the stay opens the same card. */
+  const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null)
+  /** Telegram name and username of each public-page guest, by booking id. */
+  const [clients, setClients] = useState<Map<string, BookingClient>>(new Map())
   const [blockError, setBlockError] = useState<string | null>(null)
   /** Which branch the owner picked after tapping a free day. */
   const [ownerAction, setOwnerAction] = useState<'block' | null>(null)
@@ -65,6 +78,12 @@ export default function VillaCalendar() {
     } finally {
       setLoading(false)
     }
+
+    // Only the booking card's Telegram row needs this, so it never holds up
+    // or breaks the calendar -- not even before migration 0022 is applied.
+    fetchBookingClients(villaId)
+      .then((rows) => setClients(new Map(rows.map((row) => [row.booking_id, row]))))
+      .catch(() => setClients(new Map()))
   }, [villaId])
 
   useEffect(() => {
@@ -72,6 +91,7 @@ export default function VillaCalendar() {
   }, [load])
 
   const isOwner = Boolean(villa && user && villa.owner_id === user.id)
+  const selectedBooking = bookings.find((b) => b.id === selectedBookingId) ?? null
 
   /**
    * Nights booked inside the visible month, and what they are worth. The
@@ -159,6 +179,7 @@ export default function VillaCalendar() {
           onNextMonth={() => setMonth((m) => addMonths(m, 1))}
           blocks={blocks}
           onSelectDay={(date) => {
+            setSelectedBookingId(null)
             setSelectedBlock(null)
             setBlockError(null)
             setOwnerAction(null)
@@ -169,12 +190,20 @@ export default function VillaCalendar() {
             // skips the block-vs-log choice and goes straight to the form.
             setSelectedISO(null)
             setSelectedBlock(null)
+            setSelectedBookingId(null)
             setOwnerAction(null)
             navigate(`/villa/${villa.id}/booking/new?date=${toISODate(date)}`)
           }}
           selectedISO={selectedISO}
-          onSelectBooking={(booking) => navigate(`/booking/${booking.id}`)}
+          onSelectBooking={(booking) => {
+            setSelectedISO(null)
+            setSelectedBlock(null)
+            setOwnerAction(null)
+            setBlockError(null)
+            setSelectedBookingId(booking.id)
+          }}
           onSelectBlock={(block) => {
+            setSelectedBookingId(null)
             setSelectedISO(null)
             setBlockError(null)
             setSelectedBlock(block)
@@ -185,6 +214,20 @@ export default function VillaCalendar() {
           <div className="alert alert-error" style={{ marginTop: 12 }}>
             {blockError}
           </div>
+        )}
+
+        {selectedBooking && (
+          <BookingDetailCard
+            booking={selectedBooking}
+            client={clients.get(selectedBooking.id) ?? null}
+            // As the edit page allows today: the owner, or the makler credited
+            // on it. A hold is read-only for everyone there, so no pencil.
+            canEdit={
+              selectedBooking.status === 'confirmed' && (isOwner || selectedBooking.manager_id === user.id)
+            }
+            onEdit={() => navigate(`/booking/${selectedBooking.id}`)}
+            onDismiss={() => setSelectedBookingId(null)}
+          />
         )}
 
         {selectedISO && !isOwner && (
@@ -323,6 +366,136 @@ export default function VillaCalendar() {
         )}
       </main>
     </>
+  )
+}
+
+/**
+ * A booked or held night that was tapped: who the guest is, how to reach
+ * them, and whether the deposit is in. Only the pencil leads on to the full
+ * edit page, and only for someone who may edit the booking.
+ */
+function BookingDetailCard({
+  booking,
+  client,
+  canEdit,
+  onEdit,
+  onDismiss,
+}: {
+  booking: Booking
+  client: BookingClient | null
+  canEdit: boolean
+  onEdit: () => void
+  onDismiss: () => void
+}) {
+  const { lang, t, tn } = useI18n()
+  const held = booking.status === 'pending'
+  const phone = booking.client_phone?.trim() ?? ''
+  const telegramName = client?.telegram_name?.trim() ?? ''
+  const username = client?.telegram_username ?? null
+  const typedName = booking.client_name.trim()
+  const note = booking.notes?.trim() ?? ''
+
+  return (
+    <div className="day-card">
+      <div className="day-card-head">
+        <div>
+          <h4>{formatRange(booking.check_in, booking.check_out, lang)}</h4>
+          <span className={`badge ${held ? 'badge-warning' : 'badge-accent'}`}>
+            {held ? t('villa.bookingWaiting') : t('booking.statusConfirmed')}
+          </span>
+        </div>
+        <div className="day-card-actions">
+          {canEdit && (
+            <button type="button" className="icon-button day-card-edit" onClick={onEdit} aria-label={t('villa.editBooking')}>
+              <PencilIcon className="day-card-edit-glyph" />
+            </button>
+          )}
+          <button type="button" className="day-card-dismiss" onClick={onDismiss} aria-label={t('common.close')}>
+            ×
+          </button>
+        </div>
+      </div>
+
+      <dl className="summary">
+        {phone && (
+          <div className="summary-row">
+            <dt>{t('booking.phoneLabel')}</dt>
+            <dd>
+              {/* Digits and + only in the URI; the number is shown as it was typed. */}
+              <a
+                className="day-card-link"
+                href={`tel:${phone.replace(/[^\d+]/g, '')}`}
+                aria-label={t('booking.callClient', { phone })}
+              >
+                {phone}
+              </a>
+            </dd>
+          </div>
+        )}
+
+        {booking.client_user_id && telegramName ? (
+          <div className="summary-row">
+            <dt>{t('villa.cardTelegram')}</dt>
+            <dd>
+              {username ? (
+                <a
+                  className="day-card-link"
+                  href={`https://t.me/${encodeURIComponent(username)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={t('villa.openTelegram', { username })}
+                  onClick={(e) => {
+                    if (openTelegramLink(`https://t.me/${encodeURIComponent(username)}`)) e.preventDefault()
+                  }}
+                >
+                  {telegramName}
+                </a>
+              ) : (
+                telegramName
+              )}
+            </dd>
+          </div>
+        ) : (
+          typedName && (
+            <div className="summary-row">
+              <dt>{t('villa.cardClient')}</dt>
+              <dd>{typedName}</dd>
+            </div>
+          )
+        )}
+
+        <div className="summary-row">
+          <dt>{t('villa.deposit')}</dt>
+          <dd>
+            <span className={`badge ${booking.deposit_paid ? 'badge-success' : 'badge-warning'}`}>
+              {booking.deposit_paid ? t('villa.depositPaid') : t('villa.depositNotPaid')}
+            </span>{' '}
+            {formatMoney(booking.deposit_amount, DEPOSIT_CURRENCY)}
+          </dd>
+        </div>
+
+        {booking.guests_count != null && (
+          <div className="summary-row">
+            <dt>{t('villa.cardGuests')}</dt>
+            <dd>{tn('guests', booking.guests_count)}</dd>
+          </div>
+        )}
+
+        {booking.client_type && (
+          <div className="summary-row">
+            <dt>{t('booking.clientTypeLabel')}</dt>
+            <dd>{t(`clientType.${booking.client_type}`)}</dd>
+          </div>
+        )}
+
+        {note && (
+          <div className="summary-row">
+            <dt>{t('booking.notesLabel')}</dt>
+            <dd className="day-card-note">{note}</dd>
+          </div>
+        )}
+      </dl>
+    </div>
   )
 }
 
