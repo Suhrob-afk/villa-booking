@@ -10,6 +10,7 @@ import { addDays, parseISODate, toISODate } from './dates'
 import { assertOnline } from './offline'
 import { callEdgeFunction } from './supabase'
 import { tg } from './telegram'
+import type { ClientType } from './types'
 
 // ------------------------------------------------------------------ shapes --
 
@@ -42,21 +43,43 @@ export interface PublicHold {
   total_price: number
   currency: string
   deposit_amount: number
+  guests_count: number | null
   marked_paid: boolean
+  /** Null unless the hold is live. Display only: the countdown runs off seconds_left. */
+  hold_expires_at: string | null
   /** As of the response. Null unless pending. */
   seconds_left: number | null
-  /** Only while the hold is live. */
+  /** Only while the hold is live and not yet marked paid. */
   card_number: string | null
   owner_name: string
 }
 
 export interface PublicVillaData {
   villa: PublicVilla
+  /** Nights taken by other people -- never which kind, never whose. */
   unavailable: DateRange[]
   /** Today in Tashkent, from the server -- the authority on what is past. */
   today: string
-  visitor: { registered: boolean; has_phone: boolean }
-  hold: PublicHold | null
+  visitor: {
+    registered: boolean
+    has_phone: boolean
+    /** The visitor's own number, shown back to them as saved. */
+    phone: string | null
+    /** Pre-fills the booking form. */
+    name: string
+  }
+  /** The visitor's own bookings on this villa that are still worth showing. */
+  my_bookings: PublicHold[]
+  /** The one the status line is about. */
+  latest_id: string | null
+}
+
+/** What the booking form sends with the dates. */
+export interface BookingDetails {
+  client_name: string
+  guests: number
+  client_type: ClientType
+  note: string
 }
 
 export type PublicErrorCode =
@@ -70,6 +93,8 @@ export type PublicErrorCode =
   | 'too_many_holds'
   | 'dates_taken'
   | 'hold_not_live'
+  | 'invalid_details'
+  | 'too_many_guests'
   | 'server'
   | 'network'
 
@@ -105,12 +130,21 @@ export function fetchPublicVilla(villaCode: string): Promise<PublicVillaData> {
   return call<PublicVillaData>('get-public-villa', { villa_code: villaCode })
 }
 
-export async function createPublicBooking(villaCode: string, checkIn: string, checkOut: string): Promise<PublicHold> {
+export async function createPublicBooking(
+  villaCode: string,
+  checkIn: string,
+  checkOut: string,
+  details: BookingDetails,
+): Promise<PublicHold> {
   assertOnline()
   const { hold } = await call<{ hold: PublicHold }>('create-public-booking', {
     villa_code: villaCode,
     check_in: checkIn,
     check_out: checkOut,
+    client_name: details.client_name.trim(),
+    guests: details.guests,
+    client_type: details.client_type,
+    note: details.note.trim() || null,
   })
   return hold
 }
@@ -123,16 +157,24 @@ export async function markDepositSent(bookingId: string): Promise<PublicHold> {
 
 // ---------------------------------------------------------- date selection --
 
-/** Mirrors create_public_hold() in migration 0018. */
+/** Mirrors create_public_hold() in migrations 0018 and 0021. */
 export const MAX_NIGHTS = 60
 export const MAX_DAYS_AHEAD = 365
+/** Guests allowed when the owner has not set a capacity. */
+export const DEFAULT_GUEST_CAP = 30
+export const NAME_MIN = 2
+export const NAME_MAX = 80
+export const NOTE_MAX = 300
 
-export interface Selection {
-  checkIn: string | null
-  checkOut: string | null
+export function guestCap(capacity: number | null): number {
+  return capacity ?? DEFAULT_GUEST_CAP
 }
 
-export const EMPTY_SELECTION: Selection = { checkIn: null, checkOut: null }
+/** Check-out is always after check-in: a selection is at least one night. */
+export interface Selection {
+  checkIn: string
+  checkOut: string
+}
 
 /** Every night a range covers, as YYYY-MM-DD. Local dates only -- no UTC. */
 export function unavailableNights(ranges: DateRange[]): Set<string> {
@@ -146,6 +188,7 @@ export function unavailableNights(ranges: DateRange[]): Set<string> {
 
 export interface SelectionRules {
   today: string
+  /** Every night nobody new can book: other people's AND the visitor's own. */
   taken: Set<string>
 }
 
@@ -159,47 +202,29 @@ export function isFreeNight(iso: string, rules: SelectionRules): boolean {
   return iso >= rules.today && iso <= lastCheckIn(rules.today) && !rules.taken.has(iso)
 }
 
+const nextDay = (iso: string) => toISODate(addDays(parseISODate(iso), 1))
+
+/** One tap: check-in on that night, one night long. */
+export function selectNight(iso: string): Selection {
+  return { checkIn: iso, checkOut: nextDay(iso) }
+}
+
 /**
- * The latest check-out a stay from `checkIn` can have: the first taken night
+ * The most nights a stay from `checkIn` can have: up to the first taken night
  * after it (half-open, so that night's date is itself a valid check-out), or
- * MAX_NIGHTS on, whichever comes first.
+ * MAX_NIGHTS, whichever comes first.
  */
-export function latestCheckOut(checkIn: string, rules: SelectionRules): { date: string; reason: 'taken' | 'limit' } {
-  let day = parseISODate(checkIn)
-  for (let i = 1; i <= MAX_NIGHTS; i++) {
-    day = addDays(day, 1)
-    const iso = toISODate(day)
-    if (rules.taken.has(iso)) return { date: iso, reason: 'taken' }
+export function maxNightsFrom(checkIn: string, rules: SelectionRules): number {
+  let day = checkIn
+  for (let n = 1; n < MAX_NIGHTS; n++) {
+    day = nextDay(day)
+    if (rules.taken.has(day)) return n
   }
-  return { date: toISODate(day), reason: 'limit' }
+  return MAX_NIGHTS
 }
 
-export type PickResult =
-  | { selection: Selection; error?: undefined }
-  | { selection: Selection; error: 'overlap' | 'tooLong' }
-
-/**
- * Two-tap range selection. The first tap is check-in; the second is
- * check-out if it lands after check-in without crossing a taken night.
- * Tapping on or before check-in starts over from that day. A complete range
- * is replaced by the next tap.
- */
-export function pickDay(current: Selection, iso: string, rules: SelectionRules): PickResult {
-  const choosingCheckOut = current.checkIn !== null && current.checkOut === null
-
-  if (!choosingCheckOut || iso <= current.checkIn!) {
-    return { selection: isFreeNight(iso, rules) ? { checkIn: iso, checkOut: null } : current }
-  }
-
-  const limit = latestCheckOut(current.checkIn!, rules)
-  if (iso <= limit.date) return { selection: { checkIn: current.checkIn, checkOut: iso } }
-  return { selection: current, error: limit.reason === 'taken' ? 'overlap' : 'tooLong' }
-}
-
-/** Whether a day can be tapped at all in the current selection state. */
-export function isPickable(iso: string, current: Selection, rules: SelectionRules): boolean {
-  if (isFreeNight(iso, rules)) return true
-  if (current.checkIn === null || current.checkOut !== null || iso <= current.checkIn) return false
-  // The taken night that ends the available run is still a valid check-out.
-  return iso <= latestCheckOut(current.checkIn, rules).date
+/** The stepper: one more or one fewer night, never below one or past the limit. */
+export function withNights(selection: Selection, nights: number, rules: SelectionRules): Selection {
+  const clamped = Math.max(1, Math.min(nights, maxNightsFrom(selection.checkIn, rules)))
+  return { checkIn: selection.checkIn, checkOut: toISODate(addDays(parseISODate(selection.checkIn), clamped)) }
 }

@@ -36,6 +36,10 @@
   --day-held: #f59e0b;
   --day-held-text: #422006;
   --day-cancelled-ring: #d3d8e0;
+  /* The public page: a visitor's own bookings. Green, apart from the blue
+     "your dates" selection and the grey of other people's nights. */
+  --day-mine: #059669;
+  --day-mine-text: #ffffff;
 
   --radius: 12px;
   --radius-lg: 16px;
@@ -77,6 +81,8 @@
   --day-held: #d97706;
   --day-held-text: #0b1220;
   --day-cancelled-ring: #333c49;
+  --day-mine: #34d399;
+  --day-mine-text: #0b1220;
 
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-lifted: 0 8px 24px rgba(0, 0, 0, 0.5);
@@ -1256,6 +1262,69 @@ body.is-offline .topbar { top: 28px; }
 .range-calendar .calendar-grid .day.link-right::after { right: -1px; }
 
 .legend-dot.selected { background: var(--accent); }
+.legend-dot.mine { background: var(--day-mine); }
+
+/* The visitor's own bookings: solid green, bridged into one strip per stay. */
+.range-calendar .day.mine { cursor: pointer; }
+.range-calendar .calendar-grid .day.mine .day-circle {
+  background: var(--day-mine);
+  color: var(--day-mine-text);
+  font-weight: 600;
+}
+.range-calendar .calendar-grid .day.mine:not(.range-end).link-left::before,
+.range-calendar .calendar-grid .day.mine:not(.range-end).link-right::after {
+  background: var(--day-mine);
+}
+.range-calendar .day.today.mine .day-circle { box-shadow: inset 0 0 0 2px var(--surface); }
+
+/* One line above the calendar about the visitor's latest booking. */
+.public-status-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 12px 0 0;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: left;
+  font-size: 14px;
+  cursor: pointer;
+}
+.public-status-line .status-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.public-status-line .status-text { flex: 1; min-width: 0; }
+.public-status-line .status-sub { display: block; color: var(--text-muted); font-size: 12.5px; margin-top: 2px; }
+.status-dot.tone-mine { background: var(--day-mine); }
+.status-dot.tone-wait { background: var(--day-held); }
+.status-dot.tone-off { background: var(--text-faint); }
+
+/* "- 3 nights +" */
+.stepper { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.stepper-label { font-size: 14px; color: var(--text-muted); }
+.stepper-controls { display: flex; align-items: center; gap: 4px; }
+.stepper-value {
+  min-width: 84px;
+  text-align: center;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.stepper .icon-button { border: 1px solid var(--border-strong); }
+
+.public-section { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.public-section-title { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
+.public-saved-phone { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 15px; }
+.public-saved-phone .badge { flex: none; }
+.link-button {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: 13px;
+  cursor: pointer;
+}
+.public-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.public-card-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
 
 .public-status {
   display: flex;

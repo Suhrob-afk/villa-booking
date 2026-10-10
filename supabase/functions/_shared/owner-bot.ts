@@ -2,9 +2,10 @@
 // The bot's side of a public booking: telling the villa owner about a hold,
 // asking them to confirm the deposit, and telling the guest how it ended.
 //
-// Used by create-public-booking (the heads-up), mark-deposit-sent (the message
-// with the Confirm received / Reject buttons) and telegram-bot-webhook (the
-// taps on those buttons). Every message is rebuilt from the database, never
+// Used by mark-deposit-sent (the owner's one message per booking, with the
+// Confirm received / Reject buttons) and telegram-bot-webhook (the taps on
+// those buttons). There is deliberately no message when a hold is created:
+// the owner hears about a booking once, when there is something to confirm. Every message is rebuilt from the database, never
 // from an earlier message's text, so an edit always shows the booking as it
 // now stands.
 //
@@ -76,6 +77,9 @@ export interface BookingContext {
     check_out: string
     client_name: string
     client_phone: string | null
+    client_type: ClientType | null
+    guests_count: number | null
+    notes: string | null
     deposit_amount: number
     hold_expires_at: string | null
     client_user_id: string | null
@@ -90,7 +94,9 @@ export interface BookingContext {
 export async function loadBookingContext(admin: SupabaseClient, bookingId: string): Promise<BookingContext | null> {
   const { data: booking, error } = await admin
     .from('bookings')
-    .select('id, villa_id, status, check_in, check_out, client_name, client_phone, deposit_amount, hold_expires_at, client_user_id')
+    .select(
+      'id, villa_id, status, check_in, check_out, client_name, client_phone, client_type, guests_count, notes, deposit_amount, hold_expires_at, client_user_id',
+    )
     .eq('id', bookingId)
     .maybeSingle()
   if (error) throw new Error(error.message)
@@ -142,13 +148,60 @@ function nightCount(checkIn: string, checkOut: string): number {
   return Math.round((Date.parse(`${checkOut}T00:00:00Z`) - Date.parse(`${checkIn}T00:00:00Z`)) / 86_400_000)
 }
 
-function nightsLabel(n: number, lang: Lang): string {
-  if (lang === 'en') return `${n} ${n === 1 ? 'night' : 'nights'}`
-  if (lang === 'uz') return `${n} kecha`
+/** Russian picks one of three forms; English two; Uzbek nouns do not inflect after a number. */
+function countLabel(n: number, lang: Lang, words: Record<Lang, [string, string, string]>): string {
+  const [one, few, many] = words[lang]
+  if (lang !== 'ru') return `${n} ${n === 1 ? one : many}`
   const mod10 = n % 10
   const mod100 = n % 100
-  const word = mod10 === 1 && mod100 !== 11 ? 'ночь' : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14) ? 'ночи' : 'ночей'
-  return `${n} ${word}`
+  return `${n} ${mod10 === 1 && mod100 !== 11 ? one : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14) ? few : many}`
+}
+
+const NIGHT_WORDS: Record<Lang, [string, string, string]> = {
+  en: ['night', 'nights', 'nights'],
+  ru: ['ночь', 'ночи', 'ночей'],
+  uz: ['kecha', 'kecha', 'kecha'],
+}
+
+const GUEST_WORDS: Record<Lang, [string, string, string]> = {
+  en: ['guest', 'guests', 'guests'],
+  ru: ['гость', 'гостя', 'гостей'],
+  uz: ['mehmon', 'mehmon', 'mehmon'],
+}
+
+const nightsLabel = (n: number, lang: Lang) => countLabel(n, lang, NIGHT_WORDS)
+
+export type ClientType = 'family' | 'friends_mixed' | 'friends_men' | 'friends_women' | 'couple' | 'business' | 'other'
+
+/** The same wording as the app's clientType.* strings. */
+const CLIENT_TYPE_LABELS: Record<Lang, Record<ClientType, string>> = {
+  en: {
+    family: 'Family',
+    friends_mixed: 'Friends (mixed)',
+    friends_men: 'Friends (men)',
+    friends_women: 'Friends (women)',
+    couple: 'Couple',
+    business: 'Business',
+    other: 'Other',
+  },
+  ru: {
+    family: 'Семья',
+    friends_mixed: 'Друзья (смешанная компания)',
+    friends_men: 'Друзья (мужская компания)',
+    friends_women: 'Друзья (женская компания)',
+    couple: 'Пара',
+    business: 'Бизнес',
+    other: 'Другое',
+  },
+  uz: {
+    family: 'Oila',
+    friends_mixed: 'Do‘stlar (aralash)',
+    friends_men: 'Do‘stlar (erkaklar)',
+    friends_women: 'Do‘stlar (ayollar)',
+    couple: 'Juftlik',
+    business: 'Biznes',
+    other: 'Boshqa',
+  },
 }
 
 function stay(b: BookingContext['booking'], lang: Lang): string {
@@ -186,8 +239,6 @@ export type Footer =
   | 'expired_closed'
 
 interface OwnerCopy {
-  headsUpTitle: string
-  headsUpBody: string
   depositTitle: string
   deposit: string
   depositAsk: (until: string) => string
@@ -204,9 +255,6 @@ interface OwnerCopy {
 
 export const OWNER_COPY: Record<Lang, OwnerCopy> = {
   en: {
-    headsUpTitle: '🕓 <b>New hold on your villa</b>',
-    headsUpBody:
-      'A guest from your booking link is holding these dates. They have 30 minutes to transfer the deposit to your card. When they say they’ve sent it, I’ll ask you to confirm.',
     depositTitle: '💰 <b>Deposit sent — please check your card</b>',
     deposit: 'Deposit',
     depositAsk: (until) =>
@@ -233,9 +281,6 @@ export const OWNER_COPY: Record<Lang, OwnerCopy> = {
   },
 
   ru: {
-    headsUpTitle: '🕓 <b>Новое удержание на вашей вилле</b>',
-    headsUpBody:
-      'Гость по вашей ссылке удерживает эти даты. У него есть 30 минут, чтобы перевести депозит на вашу карту. Когда он сообщит, что отправил его, я попрошу вас подтвердить.',
     depositTitle: '💰 <b>Депозит отправлен — проверьте карту</b>',
     deposit: 'Депозит',
     depositAsk: (until) =>
@@ -262,9 +307,6 @@ export const OWNER_COPY: Record<Lang, OwnerCopy> = {
   },
 
   uz: {
-    headsUpTitle: '🕓 <b>Villangizda yangi band qilish</b>',
-    headsUpBody:
-      'Havolangiz orqali kelgan mehmon bu sanalarni band qilib turibdi. Depozitni kartangizga o‘tkazish uchun unda 30 daqiqa bor. U yuborganini aytganida, sizdan tasdiqlashni so‘rayman.',
     depositTitle: '💰 <b>Depozit yuborildi — kartangizni tekshiring</b>',
     deposit: 'Depozit',
     depositAsk: (until) =>
@@ -319,21 +361,19 @@ const GUEST_COPY: Record<Lang, GuestCopy> = {
 
 // --------------------------------------------------------------- messages ----
 
-function details(ctx: BookingContext, lang: Lang, withPhone: boolean): string {
+function details(ctx: BookingContext, lang: Lang): string {
   const b = ctx.booking
   const copy = OWNER_COPY[lang]
   return [
     `🏡 ${escapeHtml(ctx.villaName)}`,
     `👤 ${escapeHtml(b.client_name)}`,
-    ...(withPhone && b.client_phone ? [`📞 ${escapeHtml(b.client_phone)}`] : []),
+    ...(b.client_phone ? [`📞 ${escapeHtml(b.client_phone)}`] : []),
     `📅 ${stay(b, lang)}`,
+    ...(b.guests_count ? [`👥 ${countLabel(b.guests_count, lang, GUEST_WORDS)}`] : []),
+    ...(b.client_type ? [`🏷 ${CLIENT_TYPE_LABELS[lang][b.client_type]}`] : []),
+    ...(b.notes ? [`📝 ${escapeHtml(b.notes)}`] : []),
     `💳 ${copy.deposit}: ${formatUzs(b.deposit_amount)}`,
   ].join('\n')
-}
-
-export function headsUpText(ctx: BookingContext): string {
-  const copy = OWNER_COPY[ctx.owner.lang]
-  return `${copy.headsUpTitle}\n\n${details(ctx, ctx.owner.lang, false)}\n\n${copy.headsUpBody}`
 }
 
 /**
@@ -345,7 +385,7 @@ export function depositMessage(ctx: BookingContext, footer: Footer | null): { te
   const lang = ctx.owner.lang
   const copy = OWNER_COPY[lang]
   const b = ctx.booking
-  const head = `${copy.depositTitle}\n\n${details(ctx, lang, true)}`
+  const head = `${copy.depositTitle}\n\n${details(ctx, lang)}`
 
   if (footer === null) {
     const until = b.hold_expires_at ? tashkentTime(b.hold_expires_at) : '—'
@@ -373,12 +413,16 @@ export function depositMessage(ctx: BookingContext, footer: Footer | null): { te
 
 // ------------------------------------------------------------ owner sends ----
 
-export type OwnerMessageKind = 'hold_created' | 'deposit_sent'
+/**
+ * 'hold_created' is still allowed by the booking_owner_messages table (0020)
+ * but no longer sent: the owner gets exactly one message per booking.
+ */
+export type OwnerMessageKind = 'deposit_sent'
 
 /**
- * Sends the owner the heads-up or the deposit message for a booking, at most
- * once per (booking, kind): the booking_owner_messages row is claimed before
- * sending, so a double tap or a retried request is a no-op.
+ * Sends the owner the deposit message for a booking, at most once per
+ * (booking, kind): the booking_owner_messages row is claimed before sending,
+ * so a double tap or a retried request is a no-op.
  *
  * Never throws -- the visitor's request must succeed whether or not the owner
  * can be reached. A failure is logged with "[owner-notify] FAILED" so it can
@@ -397,16 +441,12 @@ export async function notifyOwner(admin: SupabaseClient, bookingId: string, kind
     const ctx = await loadBookingContext(admin, bookingId)
     if (!ctx) return
 
-    const message =
-      kind === 'hold_created'
-        ? { text: headsUpText(ctx), reply_markup: undefined }
-        : depositMessage(ctx, null)
-
+    const message = depositMessage(ctx, null)
     const sent = await botCall('sendMessage', {
       chat_id: ctx.owner.telegramId,
       text: message.text,
       parse_mode: 'HTML',
-      ...(message.reply_markup ? { reply_markup: message.reply_markup } : {}),
+      reply_markup: message.reply_markup,
     })
 
     if (sent.ok) {

@@ -113,6 +113,8 @@ export interface Booking {
   deposit_amount: number
   pricing_mode: PricingMode
   client_type: ClientType | null
+  /** From the public booking form; null on bookings logged in the app. */
+  guests_count: number | null
   /** Whether the CLIENT has paid their deposit -- unrelated to commission_status. */
   deposit_paid: boolean
   /** Only set when pricing_mode is 'owner_net'. */
