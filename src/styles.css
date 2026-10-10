@@ -1114,6 +1114,14 @@ body.is-offline .topbar { top: 28px; }
 
 .day-card-muted { border-color: var(--border-strong); }
 
+/* A booked night's card: the pencil sits beside the ×, both top right. */
+.day-card-head .badge { display: inline-block; margin-top: 4px; }
+.day-card-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.day-card-edit { width: 30px; height: 30px; border-radius: 9px; }
+.day-card-edit-glyph { display: block; width: 16px; height: 16px; }
+.day-card-link { color: var(--accent); font-weight: 600; text-decoration: none; }
+.day-card-note { font-weight: 500; white-space: pre-wrap; overflow-wrap: anywhere; }
+
 .day-card-dismiss {
   border: 0;
   background: none;

@@ -20,6 +20,11 @@ Languages: en / ru / uz.
     or a migration that assumes it is gone will break, and
     `users_update_guard()` names it explicitly among the columns a user may not
     change about themselves.
+  - `users.telegram_username` (`0022`, no @) is written only by
+    `telegram-auth` from signed initData, refreshed on each sign-in;
+    `users_update_guard()` stops users setting it. Owners and maklers read a
+    public guest's name and username through `villa_booking_clients()`, since
+    `users_select` does not cover guests.
 - IDs: `users.oikoz_id` = `oikoz_id0001...`; `villas.villa_code` =
   `villa_id0001...` (literal prefix, four zero-padded digits, no separator).
 - `villa_managers` = join table. The UI calls them "Maklers".

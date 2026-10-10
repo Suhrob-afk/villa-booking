@@ -100,6 +100,8 @@ export interface Booking {
   manager_id: string | null
   client_name: string
   client_phone: string | null
+  /** The visitor who booked through the public page; null for bookings logged in the app. */
+  client_user_id: string | null
   check_in: string
   check_out: string
   /**

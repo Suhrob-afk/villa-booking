@@ -26,6 +26,8 @@ interface TelegramWebApp {
   offEvent?(event: string, cb: () => void): void
   showConfirm?(message: string, cb: (ok: boolean) => void): void
   showAlert?(message: string, cb?: () => void): void
+  /** Opens a t.me link inside Telegram itself, without leaving for a browser. */
+  openTelegramLink?(url: string): void
 }
 
 declare global {
@@ -131,4 +133,16 @@ export function onForeground(handler: () => void): () => void {
     window.removeEventListener('focus', onVisible)
     app?.offEvent?.('activated', handler)
   }
+}
+
+/**
+ * Opens a t.me link the way Telegram wants a Mini App to: in the Telegram
+ * client, keeping the app open behind it. Returns false outside Telegram, so
+ * the caller's ordinary link can be followed instead.
+ */
+export function openTelegramLink(url: string): boolean {
+  const app = tg()
+  if (!app?.openTelegramLink) return false
+  app.openTelegramLink(url)
+  return true
 }

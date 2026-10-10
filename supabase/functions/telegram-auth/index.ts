@@ -48,6 +48,12 @@ function languageFrom(code: string | undefined): Lang {
   return short === 'ru' || short === 'uz' ? short : 'en'
 }
 
+/** Telegram's username without the @, or null when they have none. */
+function usernameOf(tgUser: TelegramUser): string | null {
+  const name = tgUser.username?.trim().replace(/^@/, '')
+  return name ? name : null
+}
+
 async function mintJwt(userId: string, telegramId: number, secret: string): Promise<{ token: string; expiresAt: number }> {
   const issuedAt = Math.floor(Date.now() / 1000)
   const expiresAt = issuedAt + TOKEN_TTL_SECONDS
@@ -78,6 +84,7 @@ async function mintJwt(userId: string, telegramId: number, secret: string): Prom
  *   is_owner / is_makler  false: a client
  *   name                  their Telegram name; full_name stays null until
  *                         they ever run the bot's onboarding
+ *   telegram_username     their @username without the @, if they have one
  *   language              Telegram's language_code, else English
  *   role                  set explicitly to 'manager'. The column is retired
  *                         (0004) but still NOT NULL; 'manager' is its default
@@ -107,6 +114,7 @@ async function registerVisitor(
     {
       telegram_id: tgUser.id,
       name: telegramDisplayName(tgUser),
+      telegram_username: usernameOf(tgUser),
       language: languageFrom(tgUser.language_code),
       role: 'manager',
       is_owner: false,
@@ -150,12 +158,15 @@ Deno.serve(async (req) => {
   // ---- identify the Telegram user --------------------------------------
   let tgUser: TelegramUser
   let startParam: string | null = null
+  /** Only signed initData says anything trustworthy about the username. */
+  let signed = false
   if (body.initData) {
     if (!botToken) return json({ error: 'TELEGRAM_BOT_TOKEN is not configured' }, 500)
     try {
       const verified = await verifyInitData(body.initData, botToken)
       tgUser = verified.user
       startParam = verified.startParam
+      signed = true
     } catch (err) {
       return json({ error: (err as Error).message }, 401)
     }
@@ -188,6 +199,19 @@ Deno.serve(async (req) => {
 
   if (!user) {
     return json({ needsRegistration: true, telegram: { id: tgUser.id, name: telegramDisplayName(tgUser) } }, 200)
+  }
+
+  // Keep the username current: people add, change and drop them. Owners link
+  // to it from the booking card (villa_booking_clients, migration 0022). A
+  // failure here is logged and never blocks sign-in.
+  const username = usernameOf(tgUser)
+  if (signed && user.telegram_username !== username) {
+    const { error: usernameError } = await admin
+      .from('users')
+      .update({ telegram_username: username })
+      .eq('id', user.id)
+    if (usernameError) console.error('telegram_username update failed:', usernameError.message)
+    else user = { ...user, telegram_username: username }
   }
 
   const { token, expiresAt } = await mintJwt(user.id, tgUser.id, jwtSecret!)
