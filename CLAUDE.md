@@ -81,16 +81,24 @@ Languages: en / ru / uz.
   version from `0018` is only kept for the deploy window. `get-public-villa`
   returns other people's nights anonymously in `unavailable` and the
   visitor's own bookings separately in `my_bookings`.
-- Owner confirmation (`0020`): `mark-deposit-sent` sends the owner a bot
-  message with Confirm received / Reject (`bk:c|rc|r:<booking id>`). That is
-  the owner's only message per booking: there is no heads-up on hold
-  creation. `telegram-bot-webhook` resolves taps
-  through `confirm_public_hold()` / `reject_public_hold()`, which check the
-  tapper is the villa owner. A lapsed hold is never confirmed silently, only
-  via "Confirm anyway" while its dates are free, the guest marked it paid and
-  check-in is not past. `booking_owner_messages` records each owner message
-  (one per booking and kind); failed sends keep `sent_at` null and are logged
-  as `[owner-notify] FAILED`.
+- Owner confirmation (`0020`, `0023`): each "I've sent the deposit" sends the
+  owner a bot message with ✅ Deposit received / ⚠️ Not received
+  (`bk:c|n:<booking id>`; `bk:rc` is "Confirm anyway"). There is no heads-up
+  on hold creation. `telegram-bot-webhook` resolves taps through
+  `confirm_public_hold()` / `mark_deposit_not_received()`, which check the
+  tapper is the villa owner.
+  - Not received keeps the hold `pending`, clears `client_marked_paid_at` and
+    gives one more hour; the guest can pay and tap "sent" again, which
+    extends to two hours and sends the owner a fresh message. Twice at most
+    (`deposit_not_received_count`); the third press releases the dates as
+    `expired`.
+  - Reject (`bk:r`, status `rejected`) is no longer offered but still works on
+    owner messages sent before `0023`.
+  - A lapsed hold is never confirmed silently, only via "Confirm anyway" while
+    its dates are free, the guest marked it paid and check-in is not past.
+  - `booking_owner_messages` records each owner message, one per (booking,
+    kind, attempt) where attempt is the Not received count at the time;
+    failed sends keep `sent_at` null and are logged as `[owner-notify] FAILED`.
 - pg_cron runs exactly one job, `oikoz-release-expired-holds`, every two
   minutes (`0017`). The exchange rate is still not scheduled; it refreshes on
   demand when the cached row is no longer from today.
@@ -117,6 +125,16 @@ Languages: en / ru / uz.
 - Shared `TopBar` / `ProfileHeader` / `TabBar` are used by both owner and makler
   views. Change them there, not per screen.
 - Run typecheck and build before saying a task is done.
+
+## Parked
+
+Agreed, not built yet.
+
+- **A bot message to the guest when a hold simply expires.** Today the guest
+  hears "Your reservation wasn't confirmed" only on the third Not received (or
+  an old Reject); a plain expiry just shows Expired on the booking page. The
+  2-minute sweep runs inside Postgres and cannot call Telegram, so this needs
+  a scheduled Edge Function (or pg_net) that finds newly expired holds.
 
 ## Gotchas
 

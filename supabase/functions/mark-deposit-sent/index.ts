@@ -11,9 +11,11 @@
 // deposit_paid: only the owner confirming receipt does that, from the bot.
 // The rules are in public.mark_public_hold_paid() (migration 0018).
 //
-// On success the villa owner gets the bot message with the Confirm received /
-// Reject buttons -- once per hold, however often the visitor taps. Telegram
-// failing never fails this request; it is logged as "[owner-notify] FAILED".
+// On success the villa owner gets the bot message with the Deposit received /
+// Not received buttons -- once per attempt, however often the visitor taps.
+// After the owner says Not received (0023) the visitor can pay and tap again,
+// and that new attempt gets a fresh message. Telegram failing never fails
+// this request; it is logged as "[owner-notify] FAILED".
 //
 // Secrets: TELEGRAM_BOT_TOKEN. Injected: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
 // Deploy with --no-verify-jwt: the caller proves who they are with initData.
@@ -76,7 +78,8 @@ Deno.serve(async (req) => {
 
     if (!live) return json({ code: 'hold_not_live', error: 'hold_not_live', hold }, 409)
 
-    await notifyOwner(admin, row.id, 'deposit_sent')
+    // One message per "sent": the attempt moves on with each Not received.
+    await notifyOwner(admin, row.id, 'deposit_sent', row.deposit_not_received_count)
     return json({ hold })
   } catch (err) {
     console.error('mark-deposit-sent failed:', (err as Error).message)

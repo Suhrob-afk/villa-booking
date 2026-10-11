@@ -26,6 +26,7 @@ import {
   toISODate,
 } from '../lib/dates'
 import { bookingTitle, currencyCode, DEPOSIT_CURRENCY, formatMoney, formatMoneyGroups } from '../lib/format'
+import { isActiveHold } from '../lib/holds'
 import { useI18n } from '../lib/i18n'
 import { MONTHS, WEEKDAYS_LONG } from '../lib/strings'
 import { confirmAction, notify, openTelegramLink } from '../lib/telegram'
@@ -120,10 +121,12 @@ export default function VillaCalendar() {
     return { nights, commission, payout }
   }, [bookings, month, user])
 
+  // Confirmed stays and live holds; a hold that ran out is not upcoming.
   const upcoming = useMemo(() => {
     const todayISO = toISODate(startOfToday())
+    const now = Date.now()
     return bookings
-      .filter((b) => b.status === 'confirmed' && b.check_out >= todayISO)
+      .filter((b) => (b.status === 'confirmed' || isActiveHold(b, now)) && b.check_out >= todayISO)
       .sort((a, b) => a.check_in.localeCompare(b.check_in))
       .slice(0, 8)
   }, [bookings])
@@ -344,8 +347,10 @@ export default function VillaCalendar() {
                 <div className="row-main">
                   <div className="row-title">
                     {bookingTitle(booking.client_name, t('booking.untitled'))}
-                    {!booking.deposit_paid && (
-                      <span className="badge badge-pending"> {t('villa.depositPending')}</span>
+                    {booking.status === 'pending' ? (
+                      <span className="badge badge-pending"> {holdLabel(booking, t)}</span>
+                    ) : (
+                      !booking.deposit_paid && <span className="badge badge-pending"> {t('villa.depositPending')}</span>
                     )}
                   </div>
                   <div className="row-sub">{formatRange(booking.check_in, booking.check_out, lang)}</div>
@@ -367,6 +372,29 @@ export default function VillaCalendar() {
       </main>
     </>
   )
+}
+
+/** Local wall-clock time, like the hold notice on the booking page. */
+function clockTime(iso: string): string {
+  const date = new Date(iso)
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+/**
+ * Where a live deposit hold stands, for the owner and maklers:
+ *
+ *   Waiting for deposit            the guest has not tapped "I've sent the deposit"
+ *   Waiting for your confirmation  they have; the owner's bot message is waiting
+ *   Deposit not received, held until HH:MM
+ *                                  the owner said Not received and the guest has
+ *                                  not tapped "sent" again yet
+ */
+function holdLabel(booking: Booking, t: ReturnType<typeof useI18n>['t']): string {
+  if (booking.client_marked_paid_at) return t('villa.holdAwaitingConfirmation')
+  if (booking.deposit_not_received_count > 0 && booking.hold_expires_at) {
+    return t('villa.holdNotReceived', { time: clockTime(booking.hold_expires_at) })
+  }
+  return t('villa.holdAwaitingDeposit')
 }
 
 /**
@@ -401,7 +429,7 @@ function BookingDetailCard({
         <div>
           <h4>{formatRange(booking.check_in, booking.check_out, lang)}</h4>
           <span className={`badge ${held ? 'badge-warning' : 'badge-accent'}`}>
-            {held ? t('villa.bookingWaiting') : t('booking.statusConfirmed')}
+            {held ? holdLabel(booking, t) : t('booking.statusConfirmed')}
           </span>
         </div>
         <div className="day-card-actions">

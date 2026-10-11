@@ -163,12 +163,13 @@ export interface BookingRow {
   guests_count: number | null
   hold_expires_at: string | null
   client_marked_paid_at: string | null
+  deposit_not_received_count: number
   created_at: string
   updated_at: string
 }
 
 export const BOOKING_COLUMNS =
-  'id, villa_id, status, check_in, check_out, total_price, currency, deposit_amount, guests_count, hold_expires_at, client_marked_paid_at, created_at, updated_at'
+  'id, villa_id, status, check_in, check_out, total_price, currency, deposit_amount, guests_count, hold_expires_at, client_marked_paid_at, deposit_not_received_count, created_at, updated_at'
 
 /** A visitor's own hold, as the page sees it. */
 export interface PublicHold {
@@ -186,6 +187,11 @@ export interface PublicHold {
   deposit_amount: number
   guests_count: number | null
   marked_paid: boolean
+  /**
+   * The owner said Not received and the visitor has not tapped "sent" again
+   * yet: the page shows the card and "I've sent the deposit" once more.
+   */
+  not_received: boolean
   /** When a live hold lapses. Null unless pending and live. */
   hold_expires_at: string | null
   /** Seconds until the hold lapses, as of this response. Null unless pending. */
@@ -213,6 +219,7 @@ export function toPublicHold(row: BookingRow, ownerName: string, card: string | 
     deposit_amount: Number(row.deposit_amount),
     guests_count: row.guests_count,
     marked_paid: row.client_marked_paid_at !== null,
+    not_received: row.client_marked_paid_at === null && row.deposit_not_received_count > 0,
     hold_expires_at: live ? row.hold_expires_at : null,
     seconds_left: live ? Math.max(0, Math.floor((Date.parse(row.hold_expires_at!) - now) / 1000)) : null,
     card_number: live && row.client_marked_paid_at === null ? card : null,

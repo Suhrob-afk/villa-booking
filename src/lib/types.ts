@@ -131,6 +131,8 @@ export interface Booking {
   hold_expires_at: string | null
   /** When the visitor tapped "I've sent the deposit". */
   client_marked_paid_at: string | null
+  /** Times the owner answered Not received (0023); the third press releases the dates. */
+  deposit_not_received_count: number
   notes: string | null
   created_at: string
   updated_at: string
