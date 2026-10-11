@@ -45,6 +45,8 @@ export interface PublicHold {
   deposit_amount: number
   guests_count: number | null
   marked_paid: boolean
+  /** The owner said Not received; the visitor may pay and tap "sent" again. */
+  not_received: boolean
   /** Null unless the hold is live. Display only: the countdown runs off seconds_left. */
   hold_expires_at: string | null
   /** As of the response. Null unless pending. */

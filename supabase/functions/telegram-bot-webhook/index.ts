@@ -15,8 +15,8 @@
 // (Telegram.WebApp.requestContact sends it to the bot as an ordinary message)
 // and saves the phone on their users row -- see savePublicContact().
 //
-// And it handles a villa owner's taps on the Confirm received / Reject buttons
-// that mark-deposit-sent sends them -- see handleBookingCallback().
+// And it handles a villa owner's taps on the Deposit received / Not received
+// buttons that mark-deposit-sent sends them -- see handleBookingCallback().
 //
 // Secrets:
 //   TELEGRAM_BOT_TOKEN       — same bot as the Mini App
@@ -379,19 +379,21 @@ async function handleCallback(cq: Json): Promise<void> {
 }
 
 /**
- * A tap on Confirm received / Confirm anyway / Reject in the owner's deposit
- * message.
+ * A tap on Deposit received / Not received / Confirm anyway in the owner's
+ * deposit message -- or on Reject, which messages sent before 0023 still show.
  *
- * Who may act is decided in the database: confirm_public_hold() and
- * reject_public_hold() (migration 0020) compare the tapper's Telegram id with
- * the villa owner's, lock the row, and refuse to touch anything else. A tap
+ * Who may act is decided in the database: confirm_public_hold(),
+ * reject_public_hold() (migration 0020) and mark_deposit_not_received() (0023)
+ * compare the tapper's Telegram id with the villa owner's, lock the row, and
+ * refuse to touch anything else. A tap
  * by anybody else is answered silently -- just to stop the button's spinner --
  * and changes nothing, not even the message.
  *
  * Otherwise the message is rebuilt from the booking as it now stands and
  * edited in place, so a double tap, or a tap on a hold the sweep has already
  * released, shows the real state rather than acting twice. The guest is told
- * only by the call that actually confirmed or rejected.
+ * only by the call that actually changed something: confirmed, not received,
+ * or the dates released (the third Not received, or an old Reject).
  */
 async function handleBookingCallback(
   callbackId: string,
@@ -410,11 +412,13 @@ async function handleBookingCallback(
   const { data, error } =
     action === 'r'
       ? await admin.rpc('reject_public_hold', { p_owner_telegram_id: tapperId, p_booking_id: bookingId })
-      : await admin.rpc('confirm_public_hold', {
-          p_owner_telegram_id: tapperId,
-          p_booking_id: bookingId,
-          p_reconfirm: action === 'rc',
-        })
+      : action === 'n'
+        ? await admin.rpc('mark_deposit_not_received', { p_owner_telegram_id: tapperId, p_booking_id: bookingId })
+        : await admin.rpc('confirm_public_hold', {
+            p_owner_telegram_id: tapperId,
+            p_booking_id: bookingId,
+            p_reconfirm: action === 'rc',
+          })
 
   if (error) {
     console.error(`[owner-confirm] ${action} on booking ${bookingId} failed: ${error.message}`)
@@ -441,6 +445,19 @@ async function handleBookingCallback(
     case 'rejected':
       footer = 'rejected'
       toast = copy.toastRejected
+      break
+    case 'not_received':
+      footer = 'not_received'
+      toast = copy.toastNotReceived
+      break
+    case 'awaiting_guest':
+      // Already marked; the guest has not tapped "sent" again yet.
+      footer = 'not_received'
+      toast = copy.toastAwaitingGuest
+      break
+    case 'released':
+      footer = 'released'
+      toast = copy.toastReleased
       break
     case 'expired_free':
     case 'expired_taken':
@@ -471,8 +488,10 @@ async function handleBookingCallback(
     console.error(`[owner-confirm] could not edit the message for booking ${bookingId}: ${edit.error}`)
   }
 
-  if (result.outcome === 'confirmed' || result.outcome === 'rejected') {
+  if (result.outcome === 'confirmed' || result.outcome === 'not_received') {
     await notifyGuest(ctx, result.outcome)
+  } else if (result.outcome === 'rejected' || result.outcome === 'released') {
+    await notifyGuest(ctx, 'rejected')
   }
 }
 

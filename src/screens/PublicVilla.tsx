@@ -59,12 +59,19 @@ type PhoneIssue = 'declined' | 'timeout' | 'unsupported' | null
  * Where one of the visitor's bookings stands, as the page tells it.
  *
  *   hold        live, deposit not yet marked sent: the card number is showing
+ *   notReceived live; the owner said Not received, so the card number and
+ *               "I've sent the deposit" are back for another try (0023)
  *   waiting     live, marked sent: the owner is checking
  *   lapsedPaid  marked sent, then ran out -- the owner can still "Confirm
  *               anyway" from the bot while the dates are free
  *   expired / confirmed / declined (rejected in the bot) / cancelled (in the app)
  */
-type Phase = 'hold' | 'waiting' | 'lapsedPaid' | 'expired' | 'confirmed' | 'declined' | 'cancelled'
+type Phase = 'hold' | 'notReceived' | 'waiting' | 'lapsedPaid' | 'expired' | 'confirmed' | 'declined' | 'cancelled'
+
+/** Live holds the visitor still has to pay for: the card shows the owner's card and "I've sent the deposit". */
+const awaitsPayment = (phase: Phase) => phase === 'hold' || phase === 'notReceived'
+/** Live holds, whatever the payment state: they keep their nights. */
+const isLivePhase = (phase: Phase) => awaitsPayment(phase) || phase === 'waiting'
 
 /** The server's response, plus when it arrived -- seconds_left counts down from that moment. */
 interface Received {
@@ -183,7 +190,10 @@ export default function PublicVilla() {
         case 'pending':
         case 'expired': {
           const left = booking.status === 'pending' ? secondsLeft(booking) : null
-          if (left !== null && left > 0) return booking.marked_paid ? 'waiting' : 'hold'
+          if (left !== null && left > 0) {
+            if (booking.marked_paid) return 'waiting'
+            return booking.not_received ? 'notReceived' : 'hold'
+          }
           // "Confirm anyway" is refused once check-in has passed (0020).
           return booking.marked_paid && data && booking.check_in >= data.today ? 'lapsedPaid' : 'expired'
         }
@@ -207,7 +217,7 @@ export default function PublicVilla() {
     const nights = new Map<string, string>()
     for (const booking of bookings) {
       const phase = phaseOf(booking)
-      if (phase !== 'hold' && phase !== 'waiting' && phase !== 'confirmed') continue
+      if (!isLivePhase(phase) && phase !== 'confirmed') continue
       for (const night of unavailableNights([{ start: booking.check_in, end: booking.check_out }])) {
         nights.set(night, booking.id)
       }
@@ -227,7 +237,7 @@ export default function PublicVilla() {
   // because the owner can still confirm it. The tick moves the countdowns.
   const watching = bookings.some((b) => {
     const phase = phaseOf(b)
-    return phase === 'hold' || phase === 'waiting' || phase === 'lapsedPaid'
+    return isLivePhase(phase) || phase === 'lapsedPaid'
   })
   useEffect(() => {
     if (!watching) return
@@ -473,6 +483,8 @@ export default function PublicVilla() {
     switch (phaseOf(booking)) {
       case 'hold':
         return t('public.statusHold', { time: heldUntil(booking) })
+      case 'notReceived':
+        return t('public.statusNotReceived', { time: heldUntil(booking) })
       case 'waiting':
         return t('public.statusWaiting', { time: heldUntil(booking) })
       case 'lapsedPaid':
@@ -491,7 +503,7 @@ export default function PublicVilla() {
   function tone(booking: PublicHold): string {
     const phase = phaseOf(booking)
     if (phase === 'confirmed') return 'tone-mine'
-    if (phase === 'hold' || phase === 'waiting' || phase === 'lapsedPaid') return 'tone-wait'
+    if (isLivePhase(phase) || phase === 'lapsedPaid') return 'tone-wait'
     return 'tone-off'
   }
 
@@ -722,7 +734,7 @@ export default function PublicVilla() {
           </button>
         </div>
         <p style={{ margin: '0 0 10px', fontSize: 14 }}>{statusText(opened)}</p>
-        {phase === 'hold' && left !== null && (
+        {awaitsPayment(phase) && left !== null && (
           <p className="public-countdown" aria-live="polite" style={{ margin: '0 0 10px' }}>
             {t('public.holdTimer', { time: countdown(left) })}
           </p>
@@ -748,7 +760,7 @@ export default function PublicVilla() {
           </div>
         </dl>
 
-        {phase === 'hold' && opened.card_number && (
+        {awaitsPayment(phase) && opened.card_number && (
           <div className="public-section">
             <p className="public-pay-intro">
               {t('public.payInstructions', { amount: formatMoney(opened.deposit_amount, DEPOSIT_CURRENCY) })}

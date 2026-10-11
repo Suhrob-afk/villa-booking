@@ -51,13 +51,15 @@ export async function botCall(method: string, payload: Json): Promise<BotResult>
 // ---------------------------------------------------------- callback data ----
 // "bk:<action>:<booking uuid>" -- at most 42 bytes, under Telegram's 64.
 //
-//   c   Confirm received
+//   c   Deposit received (was "Confirm received")
 //   rc  Confirm anyway (after being told the hold expired)
-//   r   Reject
+//   n   Not received: the guest may pay and tap "sent" again (0023)
+//   r   Reject -- no longer sent, but still honoured on owner messages
+//       already sitting in chats from before Not received existed
 
-export type BookingAction = 'c' | 'rc' | 'r'
+export type BookingAction = 'c' | 'rc' | 'n' | 'r'
 
-const CALLBACK_RE = /^bk:(c|rc|r):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/
+const CALLBACK_RE = /^bk:(c|rc|n|r):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/
 
 export function parseBookingCallback(data: string): { action: BookingAction; bookingId: string } | null {
   const match = CALLBACK_RE.exec(data)
@@ -83,8 +85,11 @@ export interface BookingContext {
     deposit_amount: number
     hold_expires_at: string | null
     client_user_id: string | null
+    deposit_not_received_count: number
   }
   villaName: string
+  /** For the guest's "Open booking" link. */
+  villaCode: string
   owner: { id: string; telegramId: number; lang: Lang }
   /** The visitor who made the hold. */
   guest: { telegramId: number; lang: Lang } | null
@@ -95,7 +100,7 @@ export async function loadBookingContext(admin: SupabaseClient, bookingId: strin
   const { data: booking, error } = await admin
     .from('bookings')
     .select(
-      'id, villa_id, status, check_in, check_out, client_name, client_phone, client_type, guests_count, notes, deposit_amount, hold_expires_at, client_user_id',
+      'id, villa_id, status, check_in, check_out, client_name, client_phone, client_type, guests_count, notes, deposit_amount, hold_expires_at, client_user_id, deposit_not_received_count',
     )
     .eq('id', bookingId)
     .maybeSingle()
@@ -104,7 +109,7 @@ export async function loadBookingContext(admin: SupabaseClient, bookingId: strin
 
   const { data: villa, error: villaError } = await admin
     .from('villas')
-    .select('name, owner_id')
+    .select('name, owner_id, villa_code')
     .eq('id', booking.villa_id)
     .single()
   if (villaError) throw new Error(villaError.message)
@@ -120,6 +125,7 @@ export async function loadBookingContext(admin: SupabaseClient, bookingId: strin
   return {
     booking: { ...booking, deposit_amount: Number(booking.deposit_amount) } as BookingContext['booking'],
     villaName: villa.name as string,
+    villaCode: villa.villa_code as string,
     owner: { id: owner.data.id as string, telegramId: Number(owner.data.telegram_id), lang: asLang(owner.data.language) },
     guest: guest.data ? { telegramId: Number(guest.data.telegram_id), lang: asLang(guest.data.language) } : null,
   }
@@ -229,11 +235,16 @@ function tashkentTime(iso: string): string {
 
 // ------------------------------------------------------------------- copy ----
 
-/** How the owner's deposit message ends, once there is something to say. */
+/**
+ * How the owner's deposit message ends, once there is something to say.
+ * 'rejected' is only ever reached from an old message's Reject button.
+ */
 export type Footer =
   | 'confirmed'
   | 'rejected'
   | 'cancelled'
+  | 'not_received'
+  | 'released'
   | 'expired_free'
   | 'expired_taken'
   | 'expired_closed'
@@ -243,11 +254,16 @@ interface OwnerCopy {
   deposit: string
   depositAsk: (until: string) => string
   confirmButton: string
+  notReceivedButton: string
   confirmAnywayButton: string
-  rejectButton: string
-  footer: Record<Footer, string>
+  footer: Record<Exclude<Footer, 'not_received'>, string>
+  /** Needs the new deadline, so it is not in `footer`. */
+  notReceivedFooter: (until: string) => string
   toastConfirmed: string
   toastRejected: string
+  toastNotReceived: string
+  toastReleased: string
+  toastAwaitingGuest: string
   toastAlreadyHandled: string
   toastExpired: string
   toastFailed: string
@@ -258,11 +274,15 @@ export const OWNER_COPY: Record<Lang, OwnerCopy> = {
     depositTitle: '💰 <b>Deposit sent — please check your card</b>',
     deposit: 'Deposit',
     depositAsk: (until) =>
-      `The guest says they’ve transferred the deposit. Once it has arrived, tap “Confirm received”. The dates are held until ${until} (Tashkent time).`,
-    confirmButton: '✅ Confirm received',
+      `The guest says they’ve transferred the deposit. Once it has arrived, tap “Deposit received”. If it hasn’t, tap “Not received” and the guest can try again. The dates are held until ${until} (Tashkent time).`,
+    confirmButton: '✅ Deposit received',
+    notReceivedButton: '⚠️ Not received',
     confirmAnywayButton: '✅ Confirm anyway',
-    rejectButton: '❌ Reject',
+    notReceivedFooter: (until) =>
+      `⚠️ <b>Marked not received.</b> Dates held for the guest until ${until} (Tashkent time). If the money arrives late, you can still tap “Deposit received”.`,
     footer: {
+      released:
+        '⚠️ <b>Not received for the third time</b> — the dates were released. If the guest did send the deposit, please refund it — their number is above.',
       confirmed: '✅ <b>Confirmed</b> — deposit received. The booking is in your calendar.',
       rejected: '❌ <b>Rejected</b> — the dates are free again.',
       cancelled: 'This booking has since been cancelled in the app.',
@@ -275,6 +295,9 @@ export const OWNER_COPY: Record<Lang, OwnerCopy> = {
     },
     toastConfirmed: 'Confirmed',
     toastRejected: 'Rejected',
+    toastNotReceived: 'Marked not received',
+    toastReleased: 'Dates released',
+    toastAwaitingGuest: 'Already marked not received',
     toastAlreadyHandled: 'Already handled',
     toastExpired: 'This hold has expired',
     toastFailed: 'Something went wrong. Please try again.',
@@ -284,11 +307,15 @@ export const OWNER_COPY: Record<Lang, OwnerCopy> = {
     depositTitle: '💰 <b>Депозит отправлен — проверьте карту</b>',
     deposit: 'Депозит',
     depositAsk: (until) =>
-      `Гость сообщает, что перевёл депозит. Когда деньги поступят, нажмите «Получено». Даты удерживаются до ${until} (по Ташкенту).`,
-    confirmButton: '✅ Получено',
+      `Гость сообщает, что перевёл депозит. Когда деньги поступят, нажмите «Депозит получен». Если не пришли — «Не получен», и гость сможет попробовать ещё раз. Даты удерживаются до ${until} (по Ташкенту).`,
+    confirmButton: '✅ Депозит получен',
+    notReceivedButton: '⚠️ Не получен',
     confirmAnywayButton: '✅ Всё равно подтвердить',
-    rejectButton: '❌ Отклонить',
+    notReceivedFooter: (until) =>
+      `⚠️ <b>Отмечено: не получен.</b> Даты удерживаются за гостем до ${until} (по Ташкенту). Если деньги придут позже, всё ещё можно нажать «Депозит получен».`,
     footer: {
+      released:
+        '⚠️ <b>Депозит не получен в третий раз</b> — даты освобождены. Если гость всё же отправил депозит, верните его — номер гостя указан выше.',
       confirmed: '✅ <b>Подтверждено</b> — депозит получен. Бронь уже в вашем календаре.',
       rejected: '❌ <b>Отклонено</b> — даты снова свободны.',
       cancelled: 'С тех пор эта бронь отменена в приложении.',
@@ -301,6 +328,9 @@ export const OWNER_COPY: Record<Lang, OwnerCopy> = {
     },
     toastConfirmed: 'Подтверждено',
     toastRejected: 'Отклонено',
+    toastNotReceived: 'Отмечено: не получен',
+    toastReleased: 'Даты освобождены',
+    toastAwaitingGuest: 'Уже отмечено: не получен',
     toastAlreadyHandled: 'Уже обработано',
     toastExpired: 'Срок удержания истёк',
     toastFailed: 'Что-то пошло не так. Попробуйте ещё раз.',
@@ -310,11 +340,15 @@ export const OWNER_COPY: Record<Lang, OwnerCopy> = {
     depositTitle: '💰 <b>Depozit yuborildi — kartangizni tekshiring</b>',
     deposit: 'Depozit',
     depositAsk: (until) =>
-      `Mehmon depozitni o‘tkazganini aytmoqda. Pul kelib tushgach, «Qabul qildim» tugmasini bosing. Sanalar soat ${until} gacha (Toshkent vaqti) band turadi.`,
-    confirmButton: '✅ Qabul qildim',
+      `Mehmon depozitni o‘tkazganini aytmoqda. Pul kelib tushgach, «Depozit keldi» tugmasini bosing. Kelmagan bo‘lsa — «Kelmadi», mehmon yana urinib ko‘ra oladi. Sanalar soat ${until} gacha (Toshkent vaqti) band turadi.`,
+    confirmButton: '✅ Depozit keldi',
+    notReceivedButton: '⚠️ Kelmadi',
     confirmAnywayButton: '✅ Baribir tasdiqlash',
-    rejectButton: '❌ Rad etish',
+    notReceivedFooter: (until) =>
+      `⚠️ <b>«Kelmadi» deb belgilandi.</b> Sanalar mehmon uchun soat ${until} gacha (Toshkent vaqti) band turadi. Pul kechroq kelsa ham, «Depozit keldi» tugmasini bosishingiz mumkin.`,
     footer: {
+      released:
+        '⚠️ <b>Depozit uchinchi marta kelmadi</b> — sanalar bo‘shatildi. Agar mehmon depozitni yuborgan bo‘lsa, uni qaytaring — raqami yuqorida.',
       confirmed: '✅ <b>Tasdiqlandi</b> — depozit qabul qilindi. Bron kalendaringizda.',
       rejected: '❌ <b>Rad etildi</b> — sanalar yana bo‘sh.',
       cancelled: 'Keyinroq bu bron ilovada bekor qilingan.',
@@ -327,6 +361,9 @@ export const OWNER_COPY: Record<Lang, OwnerCopy> = {
     },
     toastConfirmed: 'Tasdiqlandi',
     toastRejected: 'Rad etildi',
+    toastNotReceived: '«Kelmadi» deb belgilandi',
+    toastReleased: 'Sanalar bo‘shatildi',
+    toastAwaitingGuest: 'Allaqachon «Kelmadi» deb belgilangan',
     toastAlreadyHandled: 'Allaqachon ko‘rib chiqilgan',
     toastExpired: 'Band qilish muddati tugagan',
     toastFailed: 'Nimadir xato ketdi. Qaytadan urinib ko‘ring.',
@@ -335,7 +372,11 @@ export const OWNER_COPY: Record<Lang, OwnerCopy> = {
 
 interface GuestCopy {
   confirmed: (villa: string, stay: string) => string
+  /** The hold ended unconfirmed: an old Reject, or the third Not received. */
   rejected: (villa: string, stay: string) => string
+  /** Not received, presses 1 and 2: pay again within the hour. */
+  notReceived: (villa: string, stay: string, until: string) => string
+  openBooking: string
 }
 
 const GUEST_COPY: Record<Lang, GuestCopy> = {
@@ -344,18 +385,27 @@ const GUEST_COPY: Record<Lang, GuestCopy> = {
       `✅ <b>Your booking is confirmed</b>\n\n🏡 ${villa}\n📅 ${s}\n\nThe owner has received your deposit. See you there!`,
     rejected: (villa, s) =>
       `Your reservation wasn’t confirmed.\n\n🏡 ${villa}\n📅 ${s}\n\nThe owner couldn’t confirm your deposit, and the dates were released. If you already transferred it, the owner can reach you on the number you shared.`,
+    notReceived: (villa, s, until) =>
+      `⚠️ <b>We couldn’t receive your deposit.</b>\n\n🏡 ${villa}\n📅 ${s}\n\nIt’s okay, you can try once again. Your dates stay reserved for you for 1 hour only (until ${until}). If the deposit isn’t made by then, someone else can book them.`,
+    openBooking: 'Open booking',
   },
   ru: {
     confirmed: (villa, s) =>
       `✅ <b>Ваша бронь подтверждена</b>\n\n🏡 ${villa}\n📅 ${s}\n\nВладелец получил ваш депозит. Ждём вас!`,
     rejected: (villa, s) =>
       `Ваша бронь не подтверждена.\n\n🏡 ${villa}\n📅 ${s}\n\nВладелец не смог подтвердить ваш депозит, даты освобождены. Если вы уже перевели его, владелец может связаться с вами по номеру, которым вы поделились.`,
+    notReceived: (villa, s, until) =>
+      `⚠️ <b>Мы не смогли получить ваш депозит.</b>\n\n🏡 ${villa}\n📅 ${s}\n\nНичего страшного, вы можете попробовать ещё раз. Даты остаются за вами только 1 час (до ${until}). Если депозит не поступит к этому времени, их сможет забронировать кто-то другой.`,
+    openBooking: 'Открыть бронь',
   },
   uz: {
     confirmed: (villa, s) =>
       `✅ <b>Broningiz tasdiqlandi</b>\n\n🏡 ${villa}\n📅 ${s}\n\nEgasi depozitingizni oldi. Sizni kutamiz!`,
     rejected: (villa, s) =>
       `Broningiz tasdiqlanmadi.\n\n🏡 ${villa}\n📅 ${s}\n\nEgasi depozitingizni tasdiqlay olmadi, sanalar bo‘shatildi. Agar uni allaqachon o‘tkazgan bo‘lsangiz, egasi siz ulashgan raqam orqali siz bilan bog‘lana oladi.`,
+    notReceived: (villa, s, until) =>
+      `⚠️ <b>Depozitingizni qabul qila olmadik.</b>\n\n🏡 ${villa}\n📅 ${s}\n\nHechqisi yo‘q, yana bir bor urinib ko‘rishingiz mumkin. Sanalar siz uchun faqat 1 soat (soat ${until} gacha) band turadi. Shu vaqtgacha depozit to‘lanmasa, ularni boshqa birov band qilishi mumkin.`,
+    openBooking: 'Bronni ochish',
   },
 }
 
@@ -378,8 +428,9 @@ function details(ctx: BookingContext, lang: Lang): string {
 
 /**
  * The owner's deposit message. Without a footer it is the question, with the
- * Confirm received / Reject buttons; with one it is the answer, and only
- * 'expired_free' keeps buttons ("Confirm anyway" / Reject).
+ * Deposit received / Not received buttons. With one it is the answer:
+ * 'not_received' keeps Deposit received, because the money may still arrive
+ * late; 'expired_free' offers Confirm anyway; everything else has no buttons.
  */
 export function depositMessage(ctx: BookingContext, footer: Footer | null): { text: string; reply_markup: Json } {
   const lang = ctx.owner.lang
@@ -394,20 +445,22 @@ export function depositMessage(ctx: BookingContext, footer: Footer | null): { te
       reply_markup: {
         inline_keyboard: [[
           { text: copy.confirmButton, callback_data: callbackData('c', b.id) },
-          { text: copy.rejectButton, callback_data: callbackData('r', b.id) },
+          { text: copy.notReceivedButton, callback_data: callbackData('n', b.id) },
         ]],
       },
     }
   }
 
-  // One button per row: "Всё равно подтвердить" is too long for half a row.
+  if (footer === 'not_received') {
+    const until = b.hold_expires_at ? tashkentTime(b.hold_expires_at) : '—'
+    return {
+      text: `${head}\n\n${copy.notReceivedFooter(until)}`,
+      reply_markup: { inline_keyboard: [[{ text: copy.confirmButton, callback_data: callbackData('c', b.id) }]] },
+    }
+  }
+
   const keyboard =
-    footer === 'expired_free'
-      ? [
-          [{ text: copy.confirmAnywayButton, callback_data: callbackData('rc', b.id) }],
-          [{ text: copy.rejectButton, callback_data: callbackData('r', b.id) }],
-        ]
-      : []
+    footer === 'expired_free' ? [[{ text: copy.confirmAnywayButton, callback_data: callbackData('rc', b.id) }]] : []
   return { text: `${head}\n\n${copy.footer[footer]}`, reply_markup: { inline_keyboard: keyboard } }
 }
 
@@ -421,20 +474,29 @@ export type OwnerMessageKind = 'deposit_sent'
 
 /**
  * Sends the owner the deposit message for a booking, at most once per
- * (booking, kind): the booking_owner_messages row is claimed before sending,
- * so a double tap or a retried request is a no-op.
+ * (booking, kind, attempt): the booking_owner_messages row is claimed before
+ * sending, so a double tap or a retried request is a no-op. The attempt is
+ * the booking's deposit_not_received_count (0023), so each "I've sent the
+ * deposit" after a Not received gets a fresh message of its own.
  *
  * Never throws -- the visitor's request must succeed whether or not the owner
  * can be reached. A failure is logged with "[owner-notify] FAILED" so it can
  * be searched for in the function logs, and stays in booking_owner_messages
  * with sent_at null and Telegram's error.
  */
-export async function notifyOwner(admin: SupabaseClient, bookingId: string, kind: OwnerMessageKind): Promise<void> {
+export async function notifyOwner(
+  admin: SupabaseClient,
+  bookingId: string,
+  kind: OwnerMessageKind,
+  attempt: number,
+): Promise<void> {
   try {
-    const { error: claimError } = await admin.from('booking_owner_messages').insert({ booking_id: bookingId, kind })
+    const { error: claimError } = await admin
+      .from('booking_owner_messages')
+      .insert({ booking_id: bookingId, kind, attempt })
     if (claimError) {
       if (claimError.code === '23505') return // already sent, or being sent right now
-      console.error(`[owner-notify] FAILED to claim ${kind} for booking ${bookingId}: ${claimError.message}`)
+      console.error(`[owner-notify] FAILED to claim ${kind} #${attempt} for booking ${bookingId}: ${claimError.message}`)
       return
     }
 
@@ -459,11 +521,12 @@ export async function notifyOwner(admin: SupabaseClient, bookingId: string, kind
         })
         .eq('booking_id', bookingId)
         .eq('kind', kind)
+        .eq('attempt', attempt)
       return
     }
 
     console.error(
-      `[owner-notify] FAILED to send ${kind} for booking ${bookingId} to owner ${ctx.owner.id} ` +
+      `[owner-notify] FAILED to send ${kind} #${attempt} for booking ${bookingId} to owner ${ctx.owner.id} ` +
         `(telegram ${ctx.owner.telegramId}): ${sent.error}`,
     )
     await admin
@@ -471,6 +534,7 @@ export async function notifyOwner(admin: SupabaseClient, bookingId: string, kind
       .update({ chat_id: ctx.owner.telegramId, error: sent.error })
       .eq('booking_id', bookingId)
       .eq('kind', kind)
+      .eq('attempt', attempt)
   } catch (err) {
     console.error(`[owner-notify] FAILED ${kind} for booking ${bookingId}: ${(err as Error).message}`)
   }
@@ -478,15 +542,35 @@ export async function notifyOwner(admin: SupabaseClient, bookingId: string, kind
 
 // ------------------------------------------------------------ guest sends ----
 
+/** The villa's public booking link, as owners share it (src/lib/holds.ts). */
+const bookingLink = (villaCode: string) =>
+  `https://t.me/oikoz_villa_bot/open?startapp=${encodeURIComponent(villaCode)}`
+
 /**
- * Tells the visitor how their hold ended. Best-effort and quiet: a visitor
+ * Tells the visitor what the owner answered. Best-effort and quiet: a visitor
  * who only ever opened the booking page has never started the bot, and
  * Telegram refuses to message them -- they still see the result on the page.
+ *
+ *   confirmed     the booking is confirmed
+ *   not_received  pay again within the hour; with an "Open booking" button
+ *   rejected      the hold ended unconfirmed (old Reject, or third Not received)
  */
-export async function notifyGuest(ctx: BookingContext, outcome: 'confirmed' | 'rejected'): Promise<void> {
+export async function notifyGuest(
+  ctx: BookingContext,
+  outcome: 'confirmed' | 'not_received' | 'rejected',
+): Promise<void> {
   if (!ctx.guest) return
   const lang = ctx.guest.lang
-  const text = GUEST_COPY[lang][outcome](escapeHtml(ctx.villaName), stay(ctx.booking, lang))
-  const sent = await botCall('sendMessage', { chat_id: ctx.guest.telegramId, text, parse_mode: 'HTML' })
+  const copy = GUEST_COPY[lang]
+  const villa = escapeHtml(ctx.villaName)
+  const dates = stay(ctx.booking, lang)
+  const payload =
+    outcome === 'not_received'
+      ? {
+          text: copy.notReceived(villa, dates, ctx.booking.hold_expires_at ? tashkentTime(ctx.booking.hold_expires_at) : '—'),
+          reply_markup: { inline_keyboard: [[{ text: copy.openBooking, url: bookingLink(ctx.villaCode) }]] },
+        }
+      : { text: copy[outcome](villa, dates) }
+  const sent = await botCall('sendMessage', { chat_id: ctx.guest.telegramId, parse_mode: 'HTML', ...payload })
   if (!sent.ok) console.log(`[guest-notify] could not message the guest of booking ${ctx.booking.id}: ${sent.error}`)
 }
