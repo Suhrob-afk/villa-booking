@@ -30,8 +30,10 @@ import { isActiveHold } from '../lib/holds'
 import { useI18n } from '../lib/i18n'
 import { MONTHS, WEEKDAYS_LONG } from '../lib/strings'
 import { confirmAction, notify, openTelegramLink } from '../lib/telegram'
+import { useVillaWriteAccess } from '../lib/subscription'
 import { useBackButton } from '../lib/useBackButton'
 import { BLOCK_REASONS, type BlockedDate, type BlockReason, type Booking, type Villa } from '../lib/types'
+import { ReadOnlyNotice } from '../components/Subscription'
 import { Empty, ErrorState, Loading, TopBar } from '../components/ui'
 
 export default function VillaCalendar() {
@@ -92,6 +94,10 @@ export default function VillaCalendar() {
   }, [load])
 
   const isOwner = Boolean(villa && user && villa.owner_id === user.id)
+  // Changes follow the villa owner's subscription, for the owner and their
+  // maklers alike; reading never does.
+  const access = useVillaWriteAccess(villa)
+  const locked = access !== 'open'
   const selectedBooking = bookings.find((b) => b.id === selectedBookingId) ?? null
 
   /**
@@ -155,6 +161,8 @@ export default function VillaCalendar() {
         }
       />
       <main className="screen">
+        {access !== 'open' && <ReadOnlyNotice access={access} />}
+
         <button
           type="button"
           className="stat-card-link"
@@ -188,15 +196,19 @@ export default function VillaCalendar() {
             setOwnerAction(null)
             setSelectedISO(toISODate(date))
           }}
-          onSelectPastDay={(date) => {
-            // Blocking a day that is already over means nothing, so a past day
-            // skips the block-vs-log choice and goes straight to the form.
-            setSelectedISO(null)
-            setSelectedBlock(null)
-            setSelectedBookingId(null)
-            setOwnerAction(null)
-            navigate(`/villa/${villa.id}/booking/new?date=${toISODate(date)}`)
-          }}
+          onSelectPastDay={
+            locked
+              ? undefined
+              : (date) => {
+                  // Blocking a day that is already over means nothing, so a past day
+                  // skips the block-vs-log choice and goes straight to the form.
+                  setSelectedISO(null)
+                  setSelectedBlock(null)
+                  setSelectedBookingId(null)
+                  setOwnerAction(null)
+                  navigate(`/villa/${villa.id}/booking/new?date=${toISODate(date)}`)
+                }
+          }
           selectedISO={selectedISO}
           onSelectBooking={(booking) => {
             setSelectedISO(null)
@@ -226,7 +238,9 @@ export default function VillaCalendar() {
             // As the edit page allows today: the owner, or the makler credited
             // on it. A hold is read-only for everyone there, so no pencil.
             canEdit={
-              selectedBooking.status === 'confirmed' && (isOwner || selectedBooking.manager_id === user.id)
+              !locked &&
+              selectedBooking.status === 'confirmed' &&
+              (isOwner || selectedBooking.manager_id === user.id)
             }
             onEdit={() => navigate(`/booking/${selectedBooking.id}`)}
             onDismiss={() => setSelectedBookingId(null)}
@@ -238,7 +252,7 @@ export default function VillaCalendar() {
             iso={selectedISO}
             villa={villa}
             onDismiss={() => setSelectedISO(null)}
-            onBook={() => navigate(`/villa/${villa.id}/booking/new?date=${selectedISO}`)}
+            onBook={locked ? undefined : () => navigate(`/villa/${villa.id}/booking/new?date=${selectedISO}`)}
           />
         )}
 
@@ -259,7 +273,12 @@ export default function VillaCalendar() {
               </button>
             </div>
             <div className="button-row" style={{ marginTop: 4 }}>
-              <button type="button" className="button button-secondary" onClick={() => setOwnerAction('block')}>
+              <button
+                type="button"
+                className="button button-secondary"
+                disabled={locked}
+                onClick={() => setOwnerAction('block')}
+              >
                 {t('villa.blockDates')}
               </button>
             </div>
@@ -267,6 +286,7 @@ export default function VillaCalendar() {
               <button
                 type="button"
                 className="button"
+                disabled={locked}
                 onClick={() => navigate(`/villa/${villa.id}/booking/new?date=${selectedISO}`)}
               >
                 {t('villa.logBooking')}
@@ -275,7 +295,7 @@ export default function VillaCalendar() {
           </div>
         )}
 
-        {selectedISO && isOwner && ownerAction === 'block' && (
+        {selectedISO && isOwner && ownerAction === 'block' && !locked && (
           <BlockForm
             startISO={selectedISO}
             onDismiss={() => {
@@ -306,7 +326,7 @@ export default function VillaCalendar() {
         {selectedBlock && (
           <BlockCard
             block={selectedBlock}
-            canUnblock={isOwner}
+            canUnblock={isOwner && !locked}
             onDismiss={() => setSelectedBlock(null)}
             onUnblock={async () => {
               if (!(await confirmAction(t('villa.unblockConfirm')))) return
@@ -328,6 +348,7 @@ export default function VillaCalendar() {
             <button
               type="button"
               className="button button-secondary"
+              disabled={locked}
               onClick={() => navigate(`/villa/${villa.id}/booking/new`)}
             >
               {t('villa.newBooking')}
@@ -540,7 +561,8 @@ function DayCard({
   iso: string
   villa: Villa
   onDismiss: () => void
-  onBook: () => void
+  /** Absent while the villa is read-only: the card still shows the rates. */
+  onBook?: () => void
 }) {
   const { lang, t } = useI18n()
   const date = parseISODate(iso)
@@ -572,11 +594,13 @@ function DayCard({
         </div>
       </dl>
 
-      <div className="button-row">
-        <button type="button" className="button" onClick={onBook}>
-          {t('villa.bookThisDate')}
-        </button>
-      </div>
+      {onBook && (
+        <div className="button-row">
+          <button type="button" className="button" onClick={onBook}>
+            {t('villa.bookThisDate')}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -37,8 +37,27 @@ function json(body: unknown, status = 200) {
   })
 }
 
-/** Only what the panel lists. Never telegram_id. */
-const COLUMNS = 'name, phone, oikoz_id, is_owner, is_makler, language, created_at'
+/** Only what the panel lists. Never telegram_id. `id` is read to join on and dropped. */
+const COLUMNS = 'id, name, phone, oikoz_id, is_owner, is_makler, language, created_at'
+
+/**
+ * Subscription columns for the panel. Read-only: this function grants,
+ * confirms and rejects nothing. receipt_file_path is deliberately not read --
+ * receipts show names and card numbers and stay in the private bucket.
+ */
+const PAYMENT_COLUMNS = 'user_id, provider, amount, status, created_at, confirmed_at, rejected_at'
+const PAYMENTS_PER_USER = 5
+const GRACE_MS = 3 * 24 * 60 * 60 * 1000
+
+type SubscriptionState = 'active' | 'grace' | 'lapsed' | 'never'
+
+/** The same rule as has_active_subscription(): paid_until + 3 days of grace. */
+function subscriptionState(paidUntil: string | null, now = Date.now()): SubscriptionState {
+  if (!paidUntil) return 'never'
+  const until = Date.parse(paidUntil)
+  if (until > now) return 'active'
+  return until + GRACE_MS > now ? 'grace' : 'lapsed'
+}
 
 /**
  * Compares without leaking the answer through how long it took. A plain ===
@@ -96,15 +115,37 @@ Deno.serve(async (req) => {
     { auth: { persistSession: false } },
   )
 
-  const { data, error } = await admin
-    .from('users')
-    .select(COLUMNS)
-    .order('created_at', { ascending: false })
+  const [usersResult, subsResult, paymentsResult] = await Promise.all([
+    admin.from('users').select(COLUMNS).order('created_at', { ascending: false }),
+    admin.from('subscriptions').select('user_id, paid_until'),
+    admin.from('subscription_payments').select(PAYMENT_COLUMNS).order('created_at', { ascending: false }).limit(2000),
+  ])
 
-  if (error) {
-    console.error('user list query failed:', error.message)
+  const failed = usersResult.error ?? subsResult.error ?? paymentsResult.error
+  if (failed) {
+    console.error('admin list query failed:', failed.message)
     return json({ error: 'Could not load users.' }, 500)
   }
 
-  return json({ users: data ?? [] })
+  const paidUntil = new Map((subsResult.data ?? []).map((s) => [s.user_id as string, s.paid_until as string | null]))
+  const paymentsByUser = new Map<string, Record<string, unknown>[]>()
+  for (const { user_id, ...payment } of paymentsResult.data ?? []) {
+    const list = paymentsByUser.get(user_id as string) ?? []
+    if (list.length < PAYMENTS_PER_USER) list.push(payment)
+    paymentsByUser.set(user_id as string, list)
+  }
+
+  const users = (usersResult.data ?? []).map(({ id, ...user }) => {
+    const until = paidUntil.get(id as string) ?? null
+    return {
+      ...user,
+      subscription: {
+        state: subscriptionState(until),
+        paid_until: until,
+        recent_payments: paymentsByUser.get(id as string) ?? [],
+      },
+    }
+  })
+
+  return json({ users })
 })

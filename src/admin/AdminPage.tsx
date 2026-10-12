@@ -10,6 +10,11 @@
  * translation layer reads the signed-in user's language, and there is no
  * signed-in user on this page.
  *
+ * Subscriptions are shown read-only: state, paid_until and each user's recent
+ * payments. Nothing here can grant time, confirm or reject -- that happens only
+ * in Telegram, by the admin's own account -- and receipts never leave the
+ * private bucket.
+ *
  * The password lives in component state for as long as the tab is open and
  * nowhere else: no localStorage, no sessionStorage, no cookie. Reloading the
  * page means entering it again, which is the right trade for occasional use.
@@ -25,6 +30,41 @@ interface AdminUser {
   is_makler: boolean
   language: string
   created_at: string
+  subscription: {
+    state: 'active' | 'grace' | 'lapsed' | 'never'
+    paid_until: string | null
+    recent_payments: {
+      provider: string
+      amount: number
+      status: 'pending' | 'confirmed' | 'rejected'
+      created_at: string
+      confirmed_at: string | null
+      rejected_at: string | null
+    }[]
+  }
+}
+
+const STATE_LABEL: Record<AdminUser['subscription']['state'], { text: string; badge: string }> = {
+  active: { text: 'Active', badge: 'badge-success' },
+  grace: { text: 'Grace', badge: 'badge-warning' },
+  lapsed: { text: 'Lapsed', badge: 'badge-danger' },
+  never: { text: '—', badge: '' },
+}
+
+/** "12 Oct 2026" in Tashkent, where every customer is. */
+function tashkentDate(iso: string | null): string {
+  if (!iso) return '—'
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Tashkent',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(iso))
+}
+
+function paymentLine(p: AdminUser['subscription']['recent_payments'][number]): string {
+  const what = p.provider === 'launch_grant' ? 'Launch: 30 days free' : `${p.amount.toLocaleString('en-US')} UZS`
+  return `${tashkentDate(p.created_at)} · ${what} · ${p.status}`
 }
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string
@@ -125,6 +165,9 @@ export default function AdminPage() {
                 <th>Role</th>
                 <th>Lang</th>
                 <th>Joined</th>
+                <th>Subscription</th>
+                <th>Paid until</th>
+                <th>Recent payments</th>
               </tr>
             </thead>
             <tbody>
@@ -136,6 +179,21 @@ export default function AdminPage() {
                   <td>{roleOf(user)}</td>
                   <td>{user.language?.toUpperCase() || '—'}</td>
                   <td>{user.created_at?.slice(0, 10) || '—'}</td>
+                  <td>
+                    {user.subscription?.state && user.subscription.state !== 'never' ? (
+                      <span className={`badge ${STATE_LABEL[user.subscription.state].badge}`}>
+                        {STATE_LABEL[user.subscription.state].text}
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  <td>{tashkentDate(user.subscription?.paid_until ?? null)}</td>
+                  <td className="admin-payments">
+                    {user.subscription?.recent_payments?.length
+                      ? user.subscription.recent_payments.map((p) => <div key={p.created_at}>{paymentLine(p)}</div>)
+                      : '—'}
+                  </td>
                 </tr>
               ))}
             </tbody>

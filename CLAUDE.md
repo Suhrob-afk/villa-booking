@@ -99,6 +99,25 @@ Languages: en / ru / uz.
   - `booking_owner_messages` records each owner message, one per (booking,
     kind, attempt) where attempt is the Not received count at the time;
     failed sends keep `sent_at` null and are logged as `[owner-notify] FAILED`.
+- Subscriptions (`0024`): 49,000 UZS for 30 days, per account. The gate is
+  on THE VILLA'S OWNER, not the person acting: any change to a villa (the
+  villa, its payout card, maklers, bookings, blocked dates) needs that villa's
+  owner to have `has_active_subscription()` (paid_until + 3 days of grace),
+  so a makler is read-only on a lapsed owner's villa and is never charged.
+  Creating a villa needs the creator's own subscription, whatever their role
+  flags say. Enforced by `subscription_write_guard()` triggers, which test
+  `auth.uid()` (so they also catch SECURITY DEFINER RPCs) and raise
+  `oikoz:subscription_required` / `oikoz:villa_owner_inactive`; `api.ts`
+  translates both. Server-side writes carry no `auth.uid()` and pass. A lapsed
+  owner's villa takes no new public holds (`bookings_paused_guard`,
+  `oikoz:bookings_paused`); existing bookings and holds are untouched.
+  Time is granted only by `mark_subscription_paid()`, reached only through a
+  `PaymentProvider`'s `markPaid` (`_shared/payments/`). Today's provider is
+  `ManualPaynetProvider`: QR from `telegram-bot-webhook/assets/paynet-qr.png`
+  (bundled via `static_files`, gitignored), receipts in the private
+  `receipts` bucket, and only `ADMIN_TELEGRAM_ID` may tap Confirm / Reject.
+  `/admin` shows subscriptions read-only and never receipts. Verify scripts
+  for earlier phases seed fixture owners a subscription when the table exists.
 - pg_cron runs exactly one job, `oikoz-release-expired-holds`, every two
   minutes (`0017`). The exchange rate is still not scheduled; it refreshes on
   demand when the cached row is no longer from today.

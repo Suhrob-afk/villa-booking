@@ -42,6 +42,7 @@ const ERROR_KEYS: Partial<Record<PublicErrorCode, StringKey>> = {
   dates_taken: 'public.errorDatesTaken',
   too_many_holds: 'public.errorTooManyHolds',
   not_accepting: 'public.notAccepting',
+  bookings_paused: 'public.bookingsPaused',
   invalid_dates: 'public.errorInvalidDates',
   invalid_details: 'public.errorInvalidDetails',
   too_many_guests: 'public.errorTooManyGuests',
@@ -798,7 +799,9 @@ export default function PublicVilla() {
       )}
 
       {sentNotice && <Alert kind="info">{t('public.requestSent')}</Alert>}
-      {!villa.accepting_bookings && <Alert kind="info">{t('public.notAccepting')}</Alert>}
+      {!villa.accepting_bookings && (
+        <Alert kind="info">{villa.bookings_paused ? t('public.bookingsPaused') : t('public.notAccepting')}</Alert>
+      )}
 
       <RangeCalendar
         month={month}

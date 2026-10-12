@@ -6,7 +6,9 @@
 //
 //   villa        name, location, weekday/weekend price, currency, deposit,
 //                capacity, owner display name, and whether it takes bookings
-//                (an owner who has not entered a payout card cannot)
+//                (an owner who has not entered a payout card cannot, and nor
+//                can one whose subscription has lapsed -- bookings_paused
+//                says which, so the page can say bookings are paused)
 //   unavailable  merged [start, end) ranges taken by OTHER people: confirmed
 //                bookings, live holds and owner blocks, from today on. Never
 //                which is which, never a block reason, never anything about a
@@ -104,9 +106,15 @@ Deno.serve(async (req) => {
     const today = tashkentToday()
     const nowIso = new Date().toISOString()
 
-    const [ownerName, card, visitor, bookings, blocks] = await Promise.all([
+    const [ownerName, card, ownerActive, visitor, bookings, blocks] = await Promise.all([
       ownerDisplayName(admin, villa.owner_id),
       payoutCard(admin, villa.id),
+      // The villa follows its owner's subscription (0024): lapsed, it takes no
+      // new bookings, while everything already booked stays as it is.
+      admin.rpc('has_active_subscription', { p_user_id: villa.owner_id }).then(({ data, error }) => {
+        if (error) throw new Error(error.message)
+        return data === true
+      }),
       findVisitor(admin, telegram.user.id),
       // client_user_id is read only to separate the caller's own nights from
       // everyone else's; it never leaves this function.
@@ -170,7 +178,8 @@ Deno.serve(async (req) => {
         deposit_amount: Number(villa.deposit_amount),
         capacity: villa.capacity,
         owner_name: ownerName,
-        accepting_bookings: card !== null,
+        accepting_bookings: card !== null && ownerActive,
+        bookings_paused: !ownerActive,
       },
       unavailable,
       today,

@@ -17,6 +17,7 @@ export type ErrorCode =
   | 'not_found'
   | 'not_registered'
   | 'not_accepting'
+  | 'bookings_paused'
   | 'phone_required'
   | 'invalid_dates'
   | 'too_many_holds'

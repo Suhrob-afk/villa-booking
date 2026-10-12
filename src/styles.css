@@ -1441,3 +1441,36 @@ body.is-offline .topbar { top: 28px; }
   box-shadow: var(--shadow-lifted);
   pointer-events: none;
 }
+
+/* ---------------------------------------------------------- subscriptions -- */
+
+/* Top of Home for an owner who is not on an active subscription. Amber while
+   still in grace, red once read-only. Existing tokens only. */
+.subscription-banner {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+.subscription-banner.is-lapsed { background: var(--danger-soft); color: var(--danger); }
+.subscription-banner strong { display: block; font-size: 15px; }
+.subscription-banner p { margin: 4px 0 12px; font-size: 13.5px; line-height: 1.45; }
+
+/* Why a villa screen's controls are disabled. */
+.subscription-notice {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--warning-soft);
+  color: var(--warning-text);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+.subscription-notice p { margin: 0; }
+.subscription-notice .subscription-button { margin-top: 10px; }
+
+.subscription-button { min-height: 44px; }
+
+.admin-payments { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+.admin-payments div + div { margin-top: 2px; }
