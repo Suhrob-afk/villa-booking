@@ -77,6 +77,16 @@ export function launchVillaCode(): string | null {
   return typeof param === 'string' && /^villa_id[0-9]{4,}$/.test(param) ? param : null
 }
 
+/**
+ * Whether t.me links can be opened inside Telegram from here. Outside a real
+ * Telegram client the bridge script still defines openTelegramLink, but there
+ * it navigates the page itself away to t.me -- so initData is required too.
+ */
+export function canOpenTelegramLink(): boolean {
+  const app = tg()
+  return Boolean(app?.initData && app.openTelegramLink && app.isVersionAtLeast?.('6.1'))
+}
+
 /** Whether this Telegram client can show the native "share phone" prompt. */
 export function canRequestContact(): boolean {
   const app = tg()

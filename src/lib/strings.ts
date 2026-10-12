@@ -170,7 +170,8 @@ const en = {
   'home.rateWeekday': 'Mon–Fri',
   'home.rateWeekend': 'Sat–Sun',
   'home.rateCommission': 'Commission',
-  'home.shareLink': 'Copy booking link',
+  'home.bookingLink': 'Booking link',
+  'share.bookingText': 'Book {villa} through this link',
   'home.linkCopied': 'Booking link copied',
   'home.linkCopyFailed': 'Couldn’t copy the link. You can copy it from the villa’s settings.',
 
@@ -448,7 +449,7 @@ const en = {
   'setup.channelMaklerHint':
     'Bookings that come through your booking link credit this makler with the villa’s commission. Leave it empty and they credit nobody.',
   'setup.shareLabel': 'Booking link',
-  'setup.shareCopy': 'Copy link',
+  'setup.shareButton': 'Share link',
   'setup.shareCopied': 'Copied',
   'setup.shareCopyFailed': 'Couldn’t copy automatically — the link is selected, copy it by hand.',
   'setup.shareHint':
@@ -632,7 +633,8 @@ const ru: Record<StringKey, string> = {
   'home.rateWeekday': 'Пн–Пт',
   'home.rateWeekend': 'Сб–Вс',
   'home.rateCommission': 'Комиссия',
-  'home.shareLink': 'Скопировать ссылку для бронирования',
+  'home.bookingLink': 'Ссылка для бронирования',
+  'share.bookingText': 'Забронируйте {villa} по этой ссылке',
   'home.linkCopied': 'Ссылка для бронирования скопирована',
   'home.linkCopyFailed': 'Не удалось скопировать ссылку. Её можно скопировать в настройках виллы.',
 
@@ -910,7 +912,7 @@ const ru: Record<StringKey, string> = {
   'setup.channelMaklerHint':
     'Брони по вашей ссылке засчитываются этому маклеру с комиссией виллы. Оставьте пустым — комиссия никому не начисляется.',
   'setup.shareLabel': 'Ссылка для бронирования',
-  'setup.shareCopy': 'Скопировать ссылку',
+  'setup.shareButton': 'Поделиться ссылкой',
   'setup.shareCopied': 'Скопировано',
   'setup.shareCopyFailed': 'Не удалось скопировать автоматически — ссылка выделена, скопируйте её вручную.',
   'setup.shareHint':
@@ -1092,7 +1094,8 @@ const uz: Record<StringKey, string> = {
   'home.rateWeekday': 'Du–Ju',
   'home.rateWeekend': 'Sh–Ya',
   'home.rateCommission': 'Komissiya',
-  'home.shareLink': 'Bron havolasini nusxalash',
+  'home.bookingLink': 'Bron havolasi',
+  'share.bookingText': '{villa} — shu havola orqali bron qiling',
   'home.linkCopied': 'Bron havolasi nusxalandi',
   'home.linkCopyFailed': 'Havolani nusxalab bo‘lmadi. Uni villa sozlamalaridan nusxalashingiz mumkin.',
 
@@ -1370,7 +1373,7 @@ const uz: Record<StringKey, string> = {
   'setup.channelMaklerHint':
     'Havolangiz orqali kelgan bronlar villa komissiyasi bilan shu maklerga yoziladi. Bo‘sh qoldirsangiz, hech kimga yozilmaydi.',
   'setup.shareLabel': 'Bron havolasi',
-  'setup.shareCopy': 'Havolani nusxalash',
+  'setup.shareButton': 'Havolani ulashish',
   'setup.shareCopied': 'Nusxalandi',
   'setup.shareCopyFailed': 'Avtomatik nusxalab bo‘lmadi — havola belgilandi, uni qo‘lda nusxalang.',
   'setup.shareHint':

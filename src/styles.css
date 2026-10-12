@@ -1402,25 +1402,25 @@ body.is-offline .topbar { top: 28px; }
   color: var(--text-faint);
 }
 
-/* -------------------------------------------------- villa card sharing -- */
+/* ----------------------------------------------- owner villa card link -- */
 
-/* The card's own button and the share button are siblings, so the wrapper
-   carries the spacing that `.card + .card` used to give adjacent cards. */
-.villa-card-wrap { position: relative; }
-.villa-card-wrap + .villa-card-wrap { margin-top: 12px; }
+/* An owner's card is a container: the open-villa button on top, the
+   "Booking link" button in its own row below, since a button cannot contain
+   another. It still reads as one card, and `.card + .card` spacing applies. */
+.villa-card-owned { padding: 0; overflow: hidden; }
 
-/* Room in the header row for the share button, which overlays it. */
-.villa-card-wrap.has-share .villa-card-head { padding-right: 44px; min-height: 40px; align-items: center; }
-
-.villa-card-share {
-  position: absolute;
-  /* Same as the card's padding, so it centres on the 40px header row. */
-  top: 16px;
-  right: 12px;
-  width: 40px;
-  height: 40px;
-  z-index: 1;
+.villa-card-open {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  padding-bottom: 12px;
 }
+
+.villa-card-actions { padding: 0 16px 16px; }
+
+/* The shared primary button, kept at a comfortable tap height. */
+.villa-card-link { min-height: 44px; }
 
 .toast {
   position: fixed;
