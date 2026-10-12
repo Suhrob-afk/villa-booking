@@ -225,8 +225,47 @@ export function maxNightsFrom(checkIn: string, rules: SelectionRules): number {
   return MAX_NIGHTS
 }
 
-/** The stepper: one more or one fewer night, never below one or past the limit. */
+/** The same stay with `nights` nights, never below one or past the limit. */
 export function withNights(selection: Selection, nights: number, rules: SelectionRules): Selection {
   const clamped = Math.max(1, Math.min(nights, maxNightsFrom(selection.checkIn, rules)))
   return { checkIn: selection.checkIn, checkOut: toISODate(addDays(parseISODate(selection.checkIn), clamped)) }
+}
+
+/**
+ * The furthest check-out a stay from `checkIn` may have: the first taken
+ * night after it -- half-open, so a stay may end the day another begins --
+ * or MAX_NIGHTS on, whichever comes first.
+ */
+export function latestCheckOut(checkIn: string, rules: SelectionRules): string {
+  return toISODate(addDays(parseISODate(checkIn), maxNightsFrom(checkIn, rules)))
+}
+
+/**
+ * A tap on the calendar, given what is selected now. Returns the new
+ * selection, or null when the tap selects nothing (a taken date that is not
+ * a valid check-out -- the page explains why).
+ *
+ *   - A date after check-in, up to latestCheckOut(): becomes the check-out.
+ *     That includes the first taken night itself, a valid check-out.
+ *   - Any other free date -- the check-in itself, an earlier one, or a later
+ *     one with a taken night or the night limit in between: a new check-in,
+ *     one night long.
+ */
+export function tapDay(current: Selection | null, iso: string, rules: SelectionRules): Selection | null {
+  if (current && iso > current.checkIn && iso <= latestCheckOut(current.checkIn, rules)) {
+    return { checkIn: current.checkIn, checkOut: iso }
+  }
+  return isFreeNight(iso, rules) ? selectNight(iso) : null
+}
+
+/**
+ * Where a drag from `checkIn` lands when the pointer is over `iso`. Never
+ * shorter than one night, never past latestCheckOut(); `clamped` says the
+ * pointer is beyond what can be booked, so the page can give a haptic tick.
+ */
+export function dragTo(checkIn: string, iso: string, rules: SelectionRules): { selection: Selection; clamped: boolean } {
+  const earliest = nextDay(checkIn)
+  const latest = latestCheckOut(checkIn, rules)
+  if (iso > latest) return { selection: { checkIn, checkOut: latest }, clamped: true }
+  return { selection: { checkIn, checkOut: iso < earliest ? earliest : iso }, clamped: false }
 }

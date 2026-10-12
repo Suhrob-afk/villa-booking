@@ -1230,11 +1230,6 @@ body.is-offline .topbar { top: 28px; }
 .public-host { margin: 0 0 10px; color: var(--text-muted); font-size: 14px; }
 .public-intro .field-hint { margin-top: 10px; }
 
-.public-step {
-  margin: 16px 4px 8px;
-  font-size: 15px;
-  font-weight: 600;
-}
 
 .public-reserve { margin-top: 16px; }
 
@@ -1271,6 +1266,20 @@ body.is-offline .topbar { top: 28px; }
 
 .legend-dot.selected { background: var(--accent); }
 .legend-dot.mine { background: var(--day-mine); }
+
+/* Press-and-hold then drag picks a stay, so a long press on the grid must not
+   select text, raise the iOS callout or the magnifier. */
+.range-calendar .calendar-grid {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+/* While a drag is under way the page must not pan; the touchmove handler is
+   what actually stops it, this keeps pointers from starting a new pan. */
+.range-calendar.dragging .calendar-grid { touch-action: none; }
+.range-calendar.dragging .day { cursor: grabbing; }
+
+.public-pick-hint { margin: 10px 4px 0; }
 
 /* The visitor's own bookings: solid green, bridged into one strip per stay. */
 .range-calendar .day.mine { cursor: pointer; }

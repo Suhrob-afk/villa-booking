@@ -14,13 +14,12 @@ import {
   guestCap,
   isFreeNight,
   markDepositSent,
-  MAX_NIGHTS,
   maxNightsFrom,
   NAME_MAX,
   NAME_MIN,
   NOTE_MAX,
   PublicBookingError,
-  selectNight,
+  tapDay,
   unavailableNights,
   withNights,
   type PublicErrorCode,
@@ -98,8 +97,9 @@ const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve
  *
  * It is always the calendar. Above it, one status line about the visitor's
  * latest booking; on it, their own bookings in their own colour. Tapping a
- * free night selects a one-night stay that a stepper lengthens; the details
- * form and "Reserve & Pay Deposit" sit in the card under the calendar. Tapping
+ * free night selects a one-night stay, and tapping or dragging to a later
+ * night sets the check-out (RangeCalendar, tapDay). The details form and
+ * "Reserve & Pay Deposit" sit in the card under the calendar. Tapping
  * one of their own nights opens that booking's card -- the owner's card
  * number and "I've sent the deposit" live there while the hold is unpaid.
  */
@@ -114,6 +114,8 @@ export default function PublicVilla() {
 
   const [month, setMonth] = useState<Date | null>(null)
   const [selection, setSelection] = useState<Selection | null>(null)
+  /** The pick hint under the calendar shows until the first selection. */
+  const [everSelected, setEverSelected] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const [takenNotice, setTakenNotice] = useState(false)
   const [sentNotice, setSentNotice] = useState(false)
@@ -511,7 +513,6 @@ export default function PublicVilla() {
   let selectionCard: ReactNode = null
   if (selection) {
     const nights = nightCount(selection.checkIn, selection.checkOut)
-    const maxNights = maxNightsFrom(selection.checkIn, rules)
     const quote = quoteRange(villa, selection.checkIn, selection.checkOut)
     const phoneMessage: Record<Exclude<PhoneIssue, null>, StringKey> = {
       declined: 'public.phoneDeclined',
@@ -525,38 +526,6 @@ export default function PublicVilla() {
           {t('public.checkInOn', { date: formatDateShort(selection.checkIn, lang) })} ·{' '}
           {t('public.checkOutOn', { date: formatDateShort(selection.checkOut, lang) })} · {tn('nights', nights)}
         </p>
-
-        <div className="stepper">
-          <span className="stepper-label">{t('public.nightsLabel')}</span>
-          <div className="stepper-controls">
-            <button
-              type="button"
-              className="icon-button"
-              aria-label={t('public.fewerNights')}
-              disabled={nights <= 1}
-              onClick={() => setSelection(withNights(selection, nights - 1, rules))}
-            >
-              −
-            </button>
-            <span className="stepper-value" aria-live="polite">
-              {tn('nights', nights)}
-            </span>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label={t('public.moreNights')}
-              disabled={nights >= maxNights}
-              onClick={() => setSelection(withNights(selection, nights + 1, rules))}
-            >
-              +
-            </button>
-          </div>
-        </div>
-        {nights >= maxNights && (
-          <p className="field-hint">
-            {maxNights >= MAX_NIGHTS ? t('public.errorTooLong', { max: MAX_NIGHTS }) : t('public.nextNightTaken')}
-          </p>
-        )}
 
         <dl className="summary" style={{ marginTop: 12 }}>
           {showBreakdown && quote.weekdayNights > 0 && (
@@ -830,26 +799,35 @@ export default function PublicVilla() {
       {sentNotice && <Alert kind="info">{t('public.requestSent')}</Alert>}
       {!villa.accepting_bookings && <Alert kind="info">{t('public.notAccepting')}</Alert>}
 
-      <p className="public-step">{t('public.pickCheckIn')}</p>
-
       <RangeCalendar
         month={month}
         onMonthChange={setMonth}
         rules={rules}
         mine={mine}
         selection={selection}
-        onPickFree={(iso) => {
+        onTapDay={(iso) => {
+          const next = tapDay(selection, iso, rules)
+          if (next) {
+            clearMessages()
+            setOpenId(null)
+            setSelection(next)
+            setEverSelected(true)
+          } else if (mine.has(iso)) {
+            openBooking(mine.get(iso)!)
+          } else {
+            // Somebody else's night, and not the check-out of what is selected.
+            setTakenNotice(true)
+          }
+        }}
+        onDragSelect={(next) => {
           clearMessages()
           setOpenId(null)
-          setSelection(selectNight(iso))
+          setSelection(next)
+          setEverSelected(true)
         }}
-        onPickTaken={() => {
-          clearMessages()
-          setTakenNotice(true)
-        }}
-        onPickMine={openBooking}
       />
 
+      {!everSelected && <p className="field-hint public-pick-hint">{t('public.pickHint')}</p>}
       {takenNotice && <Alert kind="info">{t('public.dateBooked')}</Alert>}
 
       {bookingCard}
