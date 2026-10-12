@@ -3,22 +3,25 @@ import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'reac
 import { useNavigate } from 'react-router-dom'
 import { fetchArchivedVillas, fetchVillas, setVillaArchived } from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { copyText } from '../lib/clipboard'
 import { formatMoney, formatPercent } from '../lib/format'
-import { bookingLink } from '../lib/holds'
 import { useI18n } from '../lib/i18n'
+import { shareBookingLink } from '../lib/share'
 import { notify } from '../lib/telegram'
 import { useBackButton } from '../lib/useBackButton'
 import type { Villa, VillaWithAccess } from '../lib/types'
 import { Empty, ErrorState, Loading, ProfileHeader, Toast } from '../components/ui'
 
 /**
- * A villa on Home. Owners also get a share button that copies the villa's
- * public booking link, the same one Villa Setup shows.
+ * A villa on Home.
  *
- * The share button sits beside the card's button rather than inside it,
- * because a button cannot contain another one; stopPropagation keeps a tap on
- * it from also opening the villa.
+ * Owners see the two nightly prices and a "Booking link" button under them,
+ * which shares the villa's public link. Maklers see the commission column
+ * instead -- it is their earning rate -- and no button.
+ *
+ * The owner card is a container rather than one big button, because a button
+ * cannot contain another. The share button also stops propagation, so a tap
+ * on it never opens the villa. It sits in its own full-width row: at 360px a
+ * UZS card has no room for it beside the two prices.
  */
 function VillaCard({
   villa,
@@ -30,46 +33,62 @@ function VillaCard({
   onShare?: () => void
 }) {
   const { t, tn } = useI18n()
-  return (
-    <div className={`villa-card-wrap${onShare ? ' has-share' : ''}`}>
-      <button type="button" className="card villa-card" onClick={onOpen}>
-        <div className="villa-card-head">
-          <h3>{villa.name}</h3>
-          <span className="badge">{villa.villa_code}</span>
-        </div>
-        <p className="villa-meta">
-          {[villa.location, villa.capacity ? tn('guests', villa.capacity) : null].filter(Boolean).join(' · ') ||
-            t('home.noLocation')}
-        </p>
-        <div className="villa-rates">
-          <span className="rate">
-            <span className="rate-label">{t('home.rateWeekday')}</span>
-            <span className="rate-value">{formatMoney(villa.weekday_price, villa.currency)}</span>
-          </span>
-          <span className="rate">
-            <span className="rate-label">{t('home.rateWeekend')}</span>
-            <span className="rate-value">{formatMoney(villa.weekend_price, villa.currency)}</span>
-          </span>
+
+  const body = (
+    <>
+      <div className="villa-card-head">
+        <h3>{villa.name}</h3>
+        <span className="badge">{villa.villa_code}</span>
+      </div>
+      <p className="villa-meta">
+        {[villa.location, villa.capacity ? tn('guests', villa.capacity) : null].filter(Boolean).join(' · ') ||
+          t('home.noLocation')}
+      </p>
+      <div className="villa-rates">
+        <span className="rate">
+          <span className="rate-label">{t('home.rateWeekday')}</span>
+          <span className="rate-value">{formatMoney(villa.weekday_price, villa.currency)}</span>
+        </span>
+        <span className="rate">
+          <span className="rate-label">{t('home.rateWeekend')}</span>
+          <span className="rate-value">{formatMoney(villa.weekend_price, villa.currency)}</span>
+        </span>
+        {!onShare && (
           <span className="rate">
             <span className="rate-label">{t('home.rateCommission')}</span>
             <span className="rate-value">{formatPercent(villa.commission_rate)}</span>
           </span>
-        </div>
+        )}
+      </div>
+    </>
+  )
+
+  if (!onShare) {
+    return (
+      <button type="button" className="card villa-card" onClick={onOpen}>
+        {body}
       </button>
-      {onShare && (
+    )
+  }
+
+  return (
+    <div className="card villa-card-owned">
+      <button type="button" className="villa-card villa-card-open" onClick={onOpen}>
+        {body}
+      </button>
+      <div className="villa-card-actions">
         <button
           type="button"
-          className="icon-button villa-card-share"
-          aria-label={t('home.shareLink')}
-          title={t('home.shareLink')}
+          className="button villa-card-link"
           onClick={(event: MouseEvent) => {
             event.stopPropagation()
             onShare()
           }}
         >
-          <Share2 size={18} strokeWidth={1.75} aria-hidden="true" />
+          <Share2 size={18} strokeWidth={2} aria-hidden="true" />
+          {t('home.bookingLink')}
         </button>
-      )}
+      </div>
     </div>
   )
 }
@@ -119,9 +138,10 @@ export default function Home() {
   const assigned = useMemo(() => villas?.filter((v) => v.access === 'managed') ?? [], [villas])
 
   async function shareVilla(villa: Villa) {
-    const ok = await copyText(bookingLink(villa.villa_code))
-    notify(ok ? 'success' : 'error')
-    setToast({ id: Date.now(), text: ok ? t('home.linkCopied') : t('home.linkCopyFailed') })
+    const result = await shareBookingLink(villa)
+    if (result === 'opened') return // Telegram's own picker is the feedback.
+    notify(result === 'copied' ? 'success' : 'error')
+    setToast({ id: Date.now(), text: result === 'copied' ? t('home.linkCopied') : t('home.linkCopyFailed') })
   }
 
   if (!user) return null

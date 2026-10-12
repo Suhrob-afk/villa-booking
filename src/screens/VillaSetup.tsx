@@ -20,6 +20,7 @@ import {
 import { useAuth } from '../lib/auth'
 import { CURRENCIES, DEPOSIT_CURRENCY, DEPOSIT_SUGGESTIONS, MIN_DEPOSIT } from '../lib/format'
 import { bookingLink, formatCardNumber } from '../lib/holds'
+import { shareBookingLink } from '../lib/share'
 import { useI18n } from '../lib/i18n'
 import { useOnline } from '../lib/offline'
 import { confirmAction, notify } from '../lib/telegram'
@@ -257,30 +258,20 @@ export default function VillaSetup() {
   }
 
   /**
-   * The Clipboard API is missing or refused in some Telegram WebViews, so fall
-   * back to selecting the field and execCommand; failing both, the link is
-   * left selected for the owner to copy by hand.
+   * The same share as the villa cards on Home (shareBookingLink): Telegram's
+   * chat picker where it can open, otherwise the link is copied. If even that
+   * fails, the link is left selected in the field above to copy by hand.
    */
-  async function copyLink() {
+  async function shareLink() {
     if (!villaCode) return
-    const link = bookingLink(villaCode)
-    let ok = false
-    try {
-      await navigator.clipboard.writeText(link)
-      ok = true
-    } catch {
-      linkRef.current?.select()
-      try {
-        ok = document.execCommand('copy')
-      } catch {
-        ok = false
-      }
-    }
-    if (ok) {
+    const result = await shareBookingLink({ name: form.name, villa_code: villaCode })
+    if (result === 'opened') return
+    if (result === 'copied') {
       notify('success')
       setCopied(true)
       window.setTimeout(() => setCopied(false), 2000)
     } else {
+      notify('error')
       linkRef.current?.select()
       setError(t('setup.shareCopyFailed'))
     }
@@ -571,9 +562,9 @@ export default function VillaSetup() {
                   type="button"
                   className="button button-secondary"
                   style={{ marginTop: 10 }}
-                  onClick={() => void copyLink()}
+                  onClick={() => void shareLink()}
                 >
-                  {copied ? t('setup.shareCopied') : t('setup.shareCopy')}
+                  {copied ? t('setup.shareCopied') : t('setup.shareButton')}
                 </button>
                 <p className="field-hint">{t('setup.shareHint')}</p>
               </div>
