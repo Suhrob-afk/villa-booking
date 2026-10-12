@@ -170,6 +170,9 @@ const en = {
   'home.rateWeekday': 'Mon–Fri',
   'home.rateWeekend': 'Sat–Sun',
   'home.rateCommission': 'Commission',
+  'home.shareLink': 'Copy booking link',
+  'home.linkCopied': 'Booking link copied',
+  'home.linkCopyFailed': 'Couldn’t copy the link. You can copy it from the villa’s settings.',
 
   // ---------------------------------------------------------- calendar --
   'calendar.prevMonth': 'Previous month',
@@ -629,6 +632,9 @@ const ru: Record<StringKey, string> = {
   'home.rateWeekday': 'Пн–Пт',
   'home.rateWeekend': 'Сб–Вс',
   'home.rateCommission': 'Комиссия',
+  'home.shareLink': 'Скопировать ссылку для бронирования',
+  'home.linkCopied': 'Ссылка для бронирования скопирована',
+  'home.linkCopyFailed': 'Не удалось скопировать ссылку. Её можно скопировать в настройках виллы.',
 
   // ---------------------------------------------------------- calendar --
   'calendar.prevMonth': 'Предыдущий месяц',
@@ -1086,6 +1092,9 @@ const uz: Record<StringKey, string> = {
   'home.rateWeekday': 'Du–Ju',
   'home.rateWeekend': 'Sh–Ya',
   'home.rateCommission': 'Komissiya',
+  'home.shareLink': 'Bron havolasini nusxalash',
+  'home.linkCopied': 'Bron havolasi nusxalandi',
+  'home.linkCopyFailed': 'Havolani nusxalab bo‘lmadi. Uni villa sozlamalaridan nusxalashingiz mumkin.',
 
   // ---------------------------------------------------------- calendar --
   'calendar.prevMonth': 'Oldingi oy',

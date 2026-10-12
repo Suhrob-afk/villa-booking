@@ -1,40 +1,76 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Share2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { fetchArchivedVillas, fetchVillas, setVillaArchived } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { copyText } from '../lib/clipboard'
 import { formatMoney, formatPercent } from '../lib/format'
+import { bookingLink } from '../lib/holds'
 import { useI18n } from '../lib/i18n'
+import { notify } from '../lib/telegram'
 import { useBackButton } from '../lib/useBackButton'
 import type { Villa, VillaWithAccess } from '../lib/types'
-import { Empty, ErrorState, Loading, ProfileHeader } from '../components/ui'
+import { Empty, ErrorState, Loading, ProfileHeader, Toast } from '../components/ui'
 
-function VillaCard({ villa, onOpen }: { villa: VillaWithAccess; onOpen: () => void }) {
+/**
+ * A villa on Home. Owners also get a share button that copies the villa's
+ * public booking link, the same one Villa Setup shows.
+ *
+ * The share button sits beside the card's button rather than inside it,
+ * because a button cannot contain another one; stopPropagation keeps a tap on
+ * it from also opening the villa.
+ */
+function VillaCard({
+  villa,
+  onOpen,
+  onShare,
+}: {
+  villa: VillaWithAccess
+  onOpen: () => void
+  onShare?: () => void
+}) {
   const { t, tn } = useI18n()
   return (
-    <button type="button" className="card villa-card" onClick={onOpen}>
-      <div className="villa-card-head">
-        <h3>{villa.name}</h3>
-        <span className="badge">{villa.villa_code}</span>
-      </div>
-      <p className="villa-meta">
-        {[villa.location, villa.capacity ? tn('guests', villa.capacity) : null].filter(Boolean).join(' · ') ||
-          t('home.noLocation')}
-      </p>
-      <div className="villa-rates">
-        <span className="rate">
-          <span className="rate-label">{t('home.rateWeekday')}</span>
-          <span className="rate-value">{formatMoney(villa.weekday_price, villa.currency)}</span>
-        </span>
-        <span className="rate">
-          <span className="rate-label">{t('home.rateWeekend')}</span>
-          <span className="rate-value">{formatMoney(villa.weekend_price, villa.currency)}</span>
-        </span>
-        <span className="rate">
-          <span className="rate-label">{t('home.rateCommission')}</span>
-          <span className="rate-value">{formatPercent(villa.commission_rate)}</span>
-        </span>
-      </div>
-    </button>
+    <div className={`villa-card-wrap${onShare ? ' has-share' : ''}`}>
+      <button type="button" className="card villa-card" onClick={onOpen}>
+        <div className="villa-card-head">
+          <h3>{villa.name}</h3>
+          <span className="badge">{villa.villa_code}</span>
+        </div>
+        <p className="villa-meta">
+          {[villa.location, villa.capacity ? tn('guests', villa.capacity) : null].filter(Boolean).join(' · ') ||
+            t('home.noLocation')}
+        </p>
+        <div className="villa-rates">
+          <span className="rate">
+            <span className="rate-label">{t('home.rateWeekday')}</span>
+            <span className="rate-value">{formatMoney(villa.weekday_price, villa.currency)}</span>
+          </span>
+          <span className="rate">
+            <span className="rate-label">{t('home.rateWeekend')}</span>
+            <span className="rate-value">{formatMoney(villa.weekend_price, villa.currency)}</span>
+          </span>
+          <span className="rate">
+            <span className="rate-label">{t('home.rateCommission')}</span>
+            <span className="rate-value">{formatPercent(villa.commission_rate)}</span>
+          </span>
+        </div>
+      </button>
+      {onShare && (
+        <button
+          type="button"
+          className="icon-button villa-card-share"
+          aria-label={t('home.shareLink')}
+          title={t('home.shareLink')}
+          onClick={(event: MouseEvent) => {
+            event.stopPropagation()
+            onShare()
+          }}
+        >
+          <Share2 size={18} strokeWidth={1.75} aria-hidden="true" />
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -53,6 +89,9 @@ export default function Home() {
   const [showArchived, setShowArchived] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /** The share confirmation; `id` restarts the timer when the same text repeats. */
+  const [toast, setToast] = useState<{ id: number; text: string } | null>(null)
+  const hideToast = useCallback(() => setToast(null), [])
 
   useBackButton(null)
 
@@ -78,6 +117,12 @@ export default function Home() {
 
   const owned = useMemo(() => villas?.filter((v) => v.access === 'owned') ?? [], [villas])
   const assigned = useMemo(() => villas?.filter((v) => v.access === 'managed') ?? [], [villas])
+
+  async function shareVilla(villa: Villa) {
+    const ok = await copyText(bookingLink(villa.villa_code))
+    notify(ok ? 'success' : 'error')
+    setToast({ id: Date.now(), text: ok ? t('home.linkCopied') : t('home.linkCopyFailed') })
+  }
 
   if (!user) return null
 
@@ -127,7 +172,14 @@ export default function Home() {
                       </Empty>
                     ) : (
                       owned.map((villa) => (
-                        <VillaCard key={villa.id} villa={villa} onOpen={() => navigate(`/villa/${villa.id}`)} />
+                        <VillaCard
+                          key={villa.id}
+                          villa={villa}
+                          onOpen={() => navigate(`/villa/${villa.id}`)}
+                          // Owned means owner_id is the signed-in user, the same
+                          // test is_villa_owner() makes. Makler cards get none.
+                          onShare={() => void shareVilla(villa)}
+                        />
                       ))
                     )}
                   </>
@@ -199,6 +251,7 @@ export default function Home() {
           </>
         )}
       </main>
+      {toast && <Toast key={toast.id} message={toast.text} onDone={hideToast} />}
     </>
   )
 }

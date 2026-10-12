@@ -281,6 +281,23 @@ export function CombinedTotal({ rows }: { rows: { label: string; entries: [strin
 }
 
 /**
+ * A short message floating above the tab bar that leaves by itself. Give it a
+ * fresh `key` per message so the same text shown twice restarts its timer.
+ */
+export function Toast({ message, onDone, durationMs = 2000 }: { message: string; onDone: () => void; durationMs?: number }) {
+  useEffect(() => {
+    const timer = window.setTimeout(onDone, durationMs)
+    return () => window.clearTimeout(timer)
+  }, [onDone, durationMs])
+
+  return (
+    <div className="toast" role="status" aria-live="polite">
+      {message}
+    </div>
+  )
+}
+
+/**
  * Says plainly that what is on screen is not live. It also pushes the layout
  * down by its own height (via a class on <body>), so it can stay pinned
  * without covering the sticky top bar underneath it.
