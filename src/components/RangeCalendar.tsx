@@ -2,29 +2,33 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import { addMonths, isSameDay, monthGrid, parseISODate, startOfMonth, toISODate } from '../lib/dates'
 import { useI18n } from '../lib/i18n'
 import {
-  dragTo,
   isFreeNight,
   lastCheckIn,
   latestCheckOut,
+  moveCheckIn,
+  moveCheckOut,
   selectNight,
+  stretchFrom,
+  type Clamped,
   type Selection,
   type SelectionRules,
 } from '../lib/publicBooking'
-import { haptic, setVerticalSwipesAllowed } from '../lib/telegram'
+import { haptic, selectionTick, setVerticalSwipesAllowed } from '../lib/telegram'
 import { CalendarHead } from './MonthCalendar'
 
 /**
- * How long a finger has to rest on a free day before dragging selects dates
- * instead of scrolling the page. Tune after real-device testing.
+ * Movement, in CSS pixels, below which a press that is released is a tap.
+ * Only tells a tap from a drag; there is no hold delay. Tune on real devices.
  */
-const HOLD_MS = 200
+const TAP_SLOP_PX = 5
+/** Half the minimum hit area of a range handle: 44 px across. */
+const HANDLE_HIT_RADIUS_PX = 22
 /**
- * Movement, in CSS pixels, that turns a press into a scroll before HOLD_MS is
- * up. Tune after real-device testing.
+ * Holding a drag above the grid (towards the month header) or below it
+ * (towards the legend) this long flips to the previous or next month, and
+ * the drag carries on there. Repeats while held.
  */
-const MOVE_CANCEL_PX = 8
-/** A drag can end with a click on wherever it started; ignore clicks this soon after. */
-const CLICK_SUPPRESS_MS = 400
+const EDGE_FLIP_MS = 500
 
 interface Props {
   month: Date
@@ -33,24 +37,38 @@ interface Props {
   /** Night -> the id of the visitor's own booking that covers it. */
   mine: Map<string, string>
   selection: Selection | null
-  /** A tap on any day that can be tapped. The page decides what it means (tapDay). */
-  onTapDay: (iso: string) => void
-  /** A press-and-hold drag ended on this stay. */
-  onDragSelect: (selection: Selection) => void
+  /** A tap or a drag produced this stay. */
+  onSelect: (selection: Selection) => void
+  /** A tap on a day that cannot start a stay: somebody else's night, or the guest's own booking. */
+  onTapBlocked: (iso: string) => void
 }
 
-/** A press that may become a drag. */
+/**
+ *   new       pressed on a free night: a fresh stay from there
+ *   checkIn   dragging the check-in handle; check-out stays put
+ *   checkOut  dragging the check-out handle; check-in stays put
+ *   blocked   pressed on a day that cannot start a stay; only a tap means anything
+ */
+type Mode = 'new' | 'checkIn' | 'checkOut' | 'blocked'
+
 interface Gesture {
   pointerId: number
-  pointerType: string
   startX: number
   startY: number
-  /** The free day pressed: the drag's check-in. */
-  anchor: string
-  timer: number | null
+  /** The day pressed. */
+  startIso: string
+  mode: Mode
+  /** The end of the stay that does not move: check-out for 'checkIn', check-in for 'checkOut'. */
+  fixed: string
+  /** Moved further than TAP_SLOP_PX: no longer a tap. */
   dragging: boolean
-  /** Whether the pointer is currently beyond what can be booked. */
+  /** The day last under the pointer, so each change ticks once. */
+  overIso: string | null
+  /** Whether the pointer is beyond what can be booked. */
   clamped: boolean
+  /** Held above or below the grid: which way the month flips, and when. */
+  edge: 'prev' | 'next' | null
+  edgeTimer: number | null
 }
 
 /** The day under a point on screen, or null between days and outside the month. */
@@ -69,25 +87,28 @@ function dayAt(x: number, y: number): string | null {
  * out, are inert. "Today" is the server's date in Tashkent, so a phone set to
  * another timezone still agrees with what the server will accept.
  *
- * Choosing a stay:
- *   - tap: check-in, then check-out (the page applies tapDay())
- *   - press and hold a free day for HOLD_MS, then drag: the range follows the
- *     pointer live and the release sets check-out. It stops at the last
- *     bookable check-out with a haptic tick, and works within this month;
- *     longer stays across months are made by tapping.
- *   - with a mouse, moving to another day while the button is held starts
- *     the drag at once -- a mouse cannot scroll the page by dragging anyway.
+ * Choosing a stay -- pointer events with capture, so touch and mouse behave
+ * the same, and no hold delay:
+ *   - press a free night and drag: the stay runs from there to the day under
+ *     the pointer, live. Released where it started, it is a tap: one night.
+ *   - once a stay exists, its two ends are handles. Dragging one moves that
+ *     end only; they never cross (one night at least).
+ *   - pressing anything else starts a new stay, replacing the old one.
+ *   - no stay runs over a taken night: it stops at the last bookable date,
+ *     with a light haptic tick. A check-out may still land on the first taken
+ *     day after the stay (half-open: someone else's check-in day).
+ *   - the drag works within the visible month; holding it above or below the
+ *     grid for EDGE_FLIP_MS flips the month and it carries on.
  *
- * While dragging, page scroll is blocked (a non-passive touchmove listener:
- * React's are passive) and Telegram's swipe-to-close is switched off, then
- * back on however the drag ends.
+ * touch-action: none on the grid keeps a drag there from ever scrolling the
+ * page; a touch that starts outside the grid scrolls as usual. Telegram's
+ * swipe-to-close is off from press to release.
  */
-export default function RangeCalendar({ month, onMonthChange, rules, mine, selection, onTapDay, onDragSelect }: Props) {
+export default function RangeCalendar({ month, onMonthChange, rules, mine, selection, onSelect, onTapBlocked }: Props) {
   const { t } = useI18n()
   const weeks = useMemo(() => monthGrid(month), [month])
   const gridRef = useRef<HTMLDivElement | null>(null)
   const gesture = useRef<Gesture | null>(null)
-  const suppressClickUntil = useRef(0)
 
   /** The stay being dragged, shown in place of `selection` until release. */
   const [preview, setPreview] = useState<Selection | null>(null)
@@ -96,121 +117,196 @@ export default function RangeCalendar({ month, onMonthChange, rules, mine, selec
     previewRef.current = next
     setPreview(next)
   }, [])
-
-  // The page re-renders every second while a hold counts down, with fresh
-  // callbacks each time. Reading them through refs keeps the gesture code
-  // stable, so a re-render never cancels a press in progress.
-  const onDragSelectRef = useRef(onDragSelect)
-  onDragSelectRef.current = onDragSelect
-  const rulesRef = useRef(rules)
-  rulesRef.current = rules
+  /** The handle being dragged, drawn slightly larger. */
+  const [activeHandle, setActiveHandle] = useState<'checkIn' | 'checkOut' | null>(null)
 
   const today = parseISODate(rules.today)
   const firstMonth = startOfMonth(today)
   const lastMonth = startOfMonth(parseISODate(lastCheckIn(rules.today)))
+
+  // The page re-renders every second while a hold counts down, with fresh
+  // props each time. The gesture reads them through refs, so a re-render
+  // never disturbs a drag in progress.
+  const live = useRef({ month, firstMonth, lastMonth, rules, selection, onMonthChange, onSelect, onTapBlocked })
+  live.current = { month, firstMonth, lastMonth, rules, selection, onMonthChange, onSelect, onTapBlocked }
 
   const shown = preview ?? selection
   const checkIn = shown?.checkIn ?? null
   const checkOut = shown?.checkOut ?? null
   const inRange = (iso: string) => checkIn !== null && checkOut !== null && iso > checkIn && iso < checkOut
   const covered = (iso: string) => iso === checkIn || iso === checkOut || inRange(iso)
-  /** The one taken day a tap may still pick: the check-out right before someone else's stay. */
+  /** A taken day that is still the check-out handle (half-open): drawn, and pressable as a handle. */
   const validCheckOut = selection ? latestCheckOut(selection.checkIn, rules) : null
 
   // -------------------------------------------------------------- gesture --
 
-  /** Ends any press or drag. `commit` false throws the dragged range away. */
+  /**
+   * Which handle a press at (x, y) grabs: inside a handle's own day, or within
+   * HANDLE_HIT_RADIUS_PX of its centre -- so it is 44 px across even on a
+   * narrow screen. When both qualify (a one-night stay), the nearer wins,
+   * which splits the hit areas at the midpoint.
+   */
+  function handleAt(x: number, y: number): 'checkIn' | 'checkOut' | null {
+    const current = live.current.selection
+    if (!current) return null
+    let best: { handle: 'checkIn' | 'checkOut'; distance: number } | null = null
+    for (const handle of ['checkIn', 'checkOut'] as const) {
+      const iso = handle === 'checkIn' ? current.checkIn : current.checkOut
+      const element = gridRef.current?.querySelector<HTMLElement>(`[data-iso="${iso}"]`)
+      if (!element) continue // that end is in another month
+      const rect = element.getBoundingClientRect()
+      const distance = Math.hypot(x - (rect.left + rect.width / 2), y - (rect.top + rect.height / 2))
+      const inside = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+      if ((inside || distance <= HANDLE_HIT_RADIUS_PX) && (!best || distance < best.distance)) {
+        best = { handle, distance }
+      }
+    }
+    return best?.handle ?? null
+  }
+
+  /** Ends the gesture. `commit` false (cancel) leaves the selection as it was. */
   const finish = useCallback(
     (commit: boolean) => {
       const current = gesture.current
       if (!current) return
       gesture.current = null
-      if (current.timer !== null) window.clearTimeout(current.timer)
-      if (!current.dragging) return
-
-      setVerticalSwipesAllowed(true)
-      suppressClickUntil.current = performance.now() + CLICK_SUPPRESS_MS
+      if (current.edgeTimer !== null) window.clearTimeout(current.edgeTimer)
       try {
         gridRef.current?.releasePointerCapture(current.pointerId)
       } catch {
-        // Already released, or never captured (touch).
+        // Already released.
       }
+      setVerticalSwipesAllowed(true)
+      setActiveHandle(null)
       const dragged = previewRef.current
       showPreview(null)
-      if (commit && dragged) onDragSelectRef.current(dragged)
-    },
-    [showPreview],
-  )
+      if (!commit) return
 
-  const startDrag = useCallback(() => {
-    const current = gesture.current
-    if (!current || current.dragging) return
-    current.timer = null
-    current.dragging = true
-    setVerticalSwipesAllowed(false)
-    // A mouse leaving the grid mid-drag must still deliver its pointerup here.
-    // Only once dragging: capturing earlier would retarget a plain tap's click.
-    if (current.pointerType === 'mouse') {
-      try {
-        gridRef.current?.setPointerCapture(current.pointerId)
-      } catch {
-        // Not capturable; the drag still works while the pointer stays over the grid.
+      const { rules: rulesNow, onSelect: select, onTapBlocked: tapBlocked } = live.current
+      if (current.mode === 'blocked') {
+        if (!current.dragging) tapBlocked(current.startIso)
+        return
       }
-    }
-    haptic('light')
-    showPreview(selectNight(current.anchor))
-  }, [showPreview])
-
-  /** Follows the pointer: the stay from the anchor to the day underneath. */
-  const dragOver = useCallback(
-    (x: number, y: number) => {
-      const current = gesture.current
-      if (!current?.dragging) return
-      const iso = dayAt(x, y)
-      if (!iso) return // between days, or outside this month: keep the last range
-      const next = dragTo(current.anchor, iso, rulesRef.current)
-      if (next.clamped && !current.clamped) haptic('light')
-      current.clamped = next.clamped
-      if (previewRef.current?.checkOut !== next.selection.checkOut) showPreview(next.selection)
+      if (current.dragging) {
+        if (dragged) select(dragged)
+        return
+      }
+      // A tap. On a free night, always a fresh one-night stay -- a handle
+      // included. A tap on a check-out handle sitting on a taken day does nothing.
+      if (isFreeNight(current.startIso, rulesNow)) select(selectNight(current.startIso))
     },
     [showPreview],
   )
+
+  /** The stay for the pointer over `iso`, per the gesture's mode. */
+  function stayFor(current: Gesture, iso: string): Clamped {
+    const rulesNow = live.current.rules
+    if (current.mode === 'checkIn') return moveCheckIn(current.fixed, iso, rulesNow)
+    if (current.mode === 'checkOut') return moveCheckOut(current.fixed, iso, rulesNow)
+    return stretchFrom(current.startIso, iso, rulesNow)
+  }
+
+  /** Flips the month while the drag is held past the grid's edge, then waits to flip again. */
+  const flipMonth = useCallback(() => {
+    const current = gesture.current
+    if (!current?.edge) return
+    const { month: shownMonth, firstMonth: first, lastMonth: last, onMonthChange: change } = live.current
+    const target = addMonths(shownMonth, current.edge === 'next' ? 1 : -1)
+    if (target >= first && target <= last) {
+      change(target)
+      selectionTick()
+      current.overIso = null
+    }
+    current.edgeTimer = window.setTimeout(flipMonth, EDGE_FLIP_MS)
+  }, [])
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (gesture.current || (event.pointerType === 'mouse' && event.button !== 0)) return
-    const iso = (event.target as HTMLElement).closest<HTMLElement>('[data-iso]')?.dataset.iso
-    // Only a free night can start a stay; own bookings and taken days just tap.
-    if (!iso || mine.has(iso) || !isFreeNight(iso, rules)) return
+    const { clientX: x, clientY: y } = event
+    const handle = handleAt(x, y)
+    const iso = dayAt(x, y)
+    const current = live.current.selection
+
+    let mode: Mode
+    let startIso: string
+    let fixed = ''
+    if (handle && current) {
+      mode = handle
+      startIso = handle === 'checkIn' ? current.checkIn : current.checkOut
+      fixed = handle === 'checkIn' ? current.checkOut : current.checkIn
+    } else if (iso && !mine.has(iso) && isFreeNight(iso, rules)) {
+      mode = 'new'
+      startIso = iso
+    } else if (iso && iso >= rules.today && (mine.has(iso) || rules.taken.has(iso))) {
+      mode = 'blocked'
+      startIso = iso
+    } else {
+      return // between days, a past day, or beyond the booking window: inert
+    }
+
     gesture.current = {
       pointerId: event.pointerId,
-      pointerType: event.pointerType,
-      startX: event.clientX,
-      startY: event.clientY,
-      anchor: iso,
-      timer: window.setTimeout(startDrag, HOLD_MS),
+      startX: x,
+      startY: y,
+      startIso,
+      mode,
+      fixed,
       dragging: false,
+      overIso: startIso,
       clamped: false,
+      edge: null,
+      edgeTimer: null,
+    }
+    try {
+      gridRef.current?.setPointerCapture(event.pointerId)
+    } catch {
+      // Not capturable; moves still arrive while the pointer stays over the grid.
+    }
+    setVerticalSwipesAllowed(false)
+
+    if (mode === 'new') {
+      // A new stay starts the moment the finger lands: one night, for now.
+      showPreview(selectNight(startIso))
+      selectionTick()
+    } else if (mode !== 'blocked' && current) {
+      showPreview(current)
+      setActiveHandle(mode)
+      selectionTick()
     }
   }
 
   function onPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
     const current = gesture.current
     if (!current || event.pointerId !== current.pointerId) return
-    if (current.dragging) {
-      dragOver(event.clientX, event.clientY)
-      return
+    const { clientX: x, clientY: y } = event
+
+    if (!current.dragging) {
+      if (Math.hypot(x - current.startX, y - current.startY) < TAP_SLOP_PX) return
+      current.dragging = true
     }
-    if (current.pointerType === 'mouse') {
-      // A mouse that reaches another day while held is dragging.
-      const iso = dayAt(event.clientX, event.clientY)
-      if (iso && iso !== current.anchor) {
-        startDrag()
-        dragOver(event.clientX, event.clientY)
-      }
-      return
+    if (current.mode === 'blocked') return
+
+    // Past the top or bottom of the grid: arm a month flip.
+    const rect = gridRef.current?.getBoundingClientRect()
+    const edge = rect ? (y > rect.bottom ? 'next' : y < rect.top ? 'prev' : null) : null
+    if (edge !== current.edge) {
+      if (current.edgeTimer !== null) window.clearTimeout(current.edgeTimer)
+      current.edge = edge
+      current.edgeTimer = edge ? window.setTimeout(flipMonth, EDGE_FLIP_MS) : null
     }
-    // Touch or pen moving before the hold is up: that is a scroll.
-    if (Math.hypot(event.clientX - current.startX, event.clientY - current.startY) > MOVE_CANCEL_PX) finish(false)
+
+    const iso = dayAt(x, y)
+    if (!iso || iso === current.overIso) return // between days, outside the month, or no change
+    current.overIso = iso
+
+    const next = stayFor(current, iso)
+    if (next.clamped && !current.clamped) haptic('light')
+    current.clamped = next.clamped
+    const before = previewRef.current
+    if (!before || before.checkIn !== next.selection.checkIn || before.checkOut !== next.selection.checkOut) {
+      showPreview(next.selection)
+      selectionTick()
+    }
   }
 
   function onPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
@@ -221,44 +317,18 @@ export default function RangeCalendar({ month, onMonthChange, rules, mine, selec
     if (gesture.current?.pointerId === event.pointerId) finish(false)
   }
 
-  // Native listeners for what React cannot do: a non-passive touchmove that
-  // may cancel the page scroll, and touchcancel.
-  useEffect(() => {
-    const grid = gridRef.current
-    if (!grid) return
-    const onTouchMove = (event: TouchEvent) => {
-      if (gesture.current?.dragging && event.cancelable) event.preventDefault()
-    }
-    const onTouchCancel = () => finish(false)
-    grid.addEventListener('touchmove', onTouchMove, { passive: false })
-    grid.addEventListener('touchcancel', onTouchCancel)
-    return () => {
-      grid.removeEventListener('touchmove', onTouchMove)
-      grid.removeEventListener('touchcancel', onTouchCancel)
-    }
-  }, [finish])
-
-  // Backgrounding the app or leaving the window mid-drag ends the drag and
-  // gives Telegram its swipes back; so does leaving the page. The window-level
-  // pointerup / pointercancel are a backstop: a release that somehow never
-  // reaches the grid must not leave a drag running, blocking the page scroll.
+  // Backgrounding the app or leaving the window mid-gesture cancels it and
+  // gives Telegram its swipes back; so does leaving the page.
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') finish(false)
     }
     const onBlur = () => finish(false)
-    const onWindowUp = (event: PointerEvent) => {
-      if (gesture.current?.pointerId === event.pointerId) finish(event.type === 'pointerup')
-    }
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('blur', onBlur)
-    window.addEventListener('pointerup', onWindowUp)
-    window.addEventListener('pointercancel', onWindowUp)
     return () => {
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('blur', onBlur)
-      window.removeEventListener('pointerup', onWindowUp)
-      window.removeEventListener('pointercancel', onWindowUp)
       finish(false)
     }
   }, [finish])
@@ -280,10 +350,11 @@ export default function RangeCalendar({ month, onMonthChange, rules, mine, selec
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
-        // Android's long-press menu would interrupt a hold.
-        onContextMenu={(event) => {
-          if (gesture.current) event.preventDefault()
+        onLostPointerCapture={(event) => {
+          if (gesture.current?.pointerId === event.pointerId) finish(false)
         }}
+        // A long press must not open the browser's menu over the calendar.
+        onContextMenu={(event) => event.preventDefault()}
       >
         {weeks.map((week, weekIndex) => (
           <div className="calendar-week" key={weekIndex}>
@@ -318,8 +389,9 @@ export default function RangeCalendar({ month, onMonthChange, rules, mine, selec
               const classes = [
                 'day',
                 isPast ? 'past' : ownBooking ? 'mine' : taken ? 'blocked' : free ? 'available' : '',
-                isStart ? 'range-start' : '',
-                isEnd ? 'range-end' : '',
+                isStart ? 'range-start handle' : '',
+                isEnd ? 'range-end handle' : '',
+                (isStart && activeHandle === 'checkIn') || (isEnd && activeHandle === 'checkOut') ? 'handle-active' : '',
                 inRange(iso) ? 'in-range' : '',
                 strip && !isStart && linked(-1) ? 'link-left' : '',
                 strip && !isEnd && linked(1) ? 'link-right' : '',
@@ -351,10 +423,12 @@ export default function RangeCalendar({ month, onMonthChange, rules, mine, selec
                   disabled={!tappable}
                   aria-label={label}
                   aria-pressed={selected}
-                  onClick={() => {
-                    if (performance.now() < suppressClickUntil.current) return
-                    haptic('light')
-                    onTapDay(iso)
+                  // Pointers are handled on the grid above. This is the
+                  // keyboard: Enter or Space on a day (detail 0) is a tap.
+                  onClick={(event) => {
+                    if (event.detail !== 0) return
+                    if (free) onSelect(selectNight(iso))
+                    else onTapBlocked(iso)
                   }}
                 >
                   <span className="day-circle">{date.getDate()}</span>

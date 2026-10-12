@@ -19,7 +19,6 @@ import {
   NAME_MIN,
   NOTE_MAX,
   PublicBookingError,
-  tapDay,
   unavailableNights,
   withNights,
   type PublicErrorCode,
@@ -97,8 +96,8 @@ const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve
  *
  * It is always the calendar. Above it, one status line about the visitor's
  * latest booking; on it, their own bookings in their own colour. Tapping a
- * free night selects a one-night stay, and tapping or dragging to a later
- * night sets the check-out (RangeCalendar, tapDay). The details form and
+ * free night selects a one-night stay; pressing and dragging selects a longer
+ * one, and its two ends can then be dragged (RangeCalendar). The details form and
  * "Reserve & Pay Deposit" sit in the card under the calendar. Tapping
  * one of their own nights opens that booking's card -- the owner's card
  * number and "I've sent the deposit" live there while the hold is unpaid.
@@ -522,9 +521,11 @@ export default function PublicVilla() {
 
     selectionCard = (
       <div className="card card-pad" style={{ marginTop: 12 }}>
-        <p className="public-section-title">
-          {t('public.checkInOn', { date: formatDateShort(selection.checkIn, lang) })} ·{' '}
-          {t('public.checkOutOn', { date: formatDateShort(selection.checkOut, lang) })} · {tn('nights', nights)}
+        {/* Each part stays whole; on a narrow phone the line breaks between them. */}
+        <p className="public-section-title public-stay-line">
+          <span>{t('public.checkInOn', { date: formatDateShort(selection.checkIn, lang) })}</span> ·{' '}
+          <span>{t('public.checkOutOn', { date: formatDateShort(selection.checkOut, lang) })}</span> ·{' '}
+          <span>{tn('nights', nights)}</span>
         </p>
 
         <dl className="summary" style={{ marginTop: 12 }}>
@@ -805,25 +806,19 @@ export default function PublicVilla() {
         rules={rules}
         mine={mine}
         selection={selection}
-        onTapDay={(iso) => {
-          const next = tapDay(selection, iso, rules)
-          if (next) {
-            clearMessages()
-            setOpenId(null)
-            setSelection(next)
-            setEverSelected(true)
-          } else if (mine.has(iso)) {
-            openBooking(mine.get(iso)!)
-          } else {
-            // Somebody else's night, and not the check-out of what is selected.
-            setTakenNotice(true)
-          }
-        }}
-        onDragSelect={(next) => {
+        onSelect={(next) => {
           clearMessages()
           setOpenId(null)
           setSelection(next)
           setEverSelected(true)
+        }}
+        onTapBlocked={(iso) => {
+          if (mine.has(iso)) {
+            openBooking(mine.get(iso)!)
+          } else {
+            clearMessages()
+            setTakenNotice(true)
+          }
         }}
       />
 
