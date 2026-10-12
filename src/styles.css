@@ -1267,16 +1267,24 @@ body.is-offline .topbar { top: 28px; }
 .legend-dot.selected { background: var(--accent); }
 .legend-dot.mine { background: var(--day-mine); }
 
-/* Press-and-hold then drag picks a stay, so a long press on the grid must not
-   select text, raise the iOS callout or the magnifier. */
+/* Pressing and dragging on the grid picks a stay, so a drag that starts there
+   never scrolls the page (one that starts outside it still does), and a long
+   press must not select text, raise the iOS callout or the magnifier. */
 .range-calendar .calendar-grid {
+  touch-action: none;
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
 }
-/* While a drag is under way the page must not pan; the touchmove handler is
-   what actually stops it, this keeps pointers from starting a new pan. */
-.range-calendar.dragging .calendar-grid { touch-action: none; }
+
+/* The stay's two ends are handles: a ring around the bright circle says they
+   can be dragged, and the one being dragged grows a little. */
+.range-calendar .calendar-grid .day.handle { cursor: grab; }
+.range-calendar .calendar-grid .day.handle .day-circle {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+  transition: transform 120ms ease, background 120ms ease, color 120ms ease;
+}
+.range-calendar .calendar-grid .day.handle-active .day-circle { transform: scale(1.12); }
 .range-calendar.dragging .day { cursor: grabbing; }
 
 .public-pick-hint { margin: 10px 4px 0; }
@@ -1330,6 +1338,10 @@ body.is-offline .topbar { top: 28px; }
 
 .public-section { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
 .public-section-title { margin: 0 0 10px; font-size: 14px; font-weight: 600; }
+/* "Check-in 16 Oct · Check-out 18 Oct · 2 nights": a size up, and free to
+   wrap onto a second line on a narrow phone rather than overflow. */
+.public-stay-line { font-size: 16px; overflow-wrap: anywhere; }
+.public-stay-line > span { white-space: nowrap; }
 .public-saved-phone { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 15px; }
 .public-saved-phone .badge { flex: none; }
 .link-button {

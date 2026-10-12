@@ -240,32 +240,64 @@ export function latestCheckOut(checkIn: string, rules: SelectionRules): string {
   return toISODate(addDays(parseISODate(checkIn), maxNightsFrom(checkIn, rules)))
 }
 
+const previousDay = (iso: string) => toISODate(addDays(parseISODate(iso), -1))
+
 /**
- * A tap on the calendar, given what is selected now. Returns the new
- * selection, or null when the tap selects nothing (a taken date that is not
- * a valid check-out -- the page explains why).
- *
- *   - A date after check-in, up to latestCheckOut(): becomes the check-out.
- *     That includes the first taken night itself, a valid check-out.
- *   - Any other free date -- the check-in itself, an earlier one, or a later
- *     one with a taken night or the night limit in between: a new check-in,
- *     one night long.
+ * The earliest check-in a stay ending on `checkOut` may have: walking back
+ * night by night while each night is free (not taken, not past, within the
+ * booking window), for at most MAX_NIGHTS. The mirror of latestCheckOut().
  */
-export function tapDay(current: Selection | null, iso: string, rules: SelectionRules): Selection | null {
-  if (current && iso > current.checkIn && iso <= latestCheckOut(current.checkIn, rules)) {
-    return { checkIn: current.checkIn, checkOut: iso }
+export function earliestCheckIn(checkOut: string, rules: SelectionRules): string {
+  let earliest = checkOut
+  for (let n = 1; n <= MAX_NIGHTS; n++) {
+    const night = previousDay(earliest)
+    if (!isFreeNight(night, rules)) break
+    earliest = night
   }
-  return isFreeNight(iso, rules) ? selectNight(iso) : null
+  return earliest
+}
+
+/** A stay, and whether the pointer is beyond what can be booked (for a haptic tick). */
+export interface Clamped {
+  selection: Selection
+  clamped: boolean
 }
 
 /**
- * Where a drag from `checkIn` lands when the pointer is over `iso`. Never
- * shorter than one night, never past latestCheckOut(); `clamped` says the
- * pointer is beyond what can be booked, so the page can give a haptic tick.
+ * Check-in fixed, check-out following the pointer: never less than one night,
+ * never past latestCheckOut() -- which may itself be a taken date, the
+ * half-open check-out on someone else's check-in day.
  */
-export function dragTo(checkIn: string, iso: string, rules: SelectionRules): { selection: Selection; clamped: boolean } {
+export function moveCheckOut(checkIn: string, pointer: string, rules: SelectionRules): Clamped {
   const earliest = nextDay(checkIn)
   const latest = latestCheckOut(checkIn, rules)
-  if (iso > latest) return { selection: { checkIn, checkOut: latest }, clamped: true }
-  return { selection: { checkIn, checkOut: iso < earliest ? earliest : iso }, clamped: false }
+  if (pointer > latest) return { selection: { checkIn, checkOut: latest }, clamped: true }
+  return { selection: { checkIn, checkOut: pointer < earliest ? earliest : pointer }, clamped: false }
+}
+
+/**
+ * Check-out fixed, check-in following the pointer: never less than one night,
+ * never earlier than earliestCheckIn().
+ */
+export function moveCheckIn(checkOut: string, pointer: string, rules: SelectionRules): Clamped {
+  const latest = previousDay(checkOut)
+  const earliest = earliestCheckIn(checkOut, rules)
+  if (pointer < earliest) return { selection: { checkIn: earliest, checkOut }, clamped: true }
+  return { selection: { checkIn: pointer > latest ? latest : pointer, checkOut }, clamped: false }
+}
+
+/**
+ * A new selection pressed on the free night `anchor` and dragged to `pointer`.
+ * The two dates touched are the stay's two ends: forwards, the anchor is the
+ * check-in and the pointer the check-out; backwards, the other way round.
+ * Released on the anchor itself, it is one night.
+ */
+export function stretchFrom(anchor: string, pointer: string, rules: SelectionRules): Clamped {
+  if (pointer > anchor) return moveCheckOut(anchor, pointer, rules)
+  if (pointer < anchor) {
+    // Backwards from a night whose eve is taken: there is no earlier check-in.
+    if (earliestCheckIn(anchor, rules) === anchor) return { selection: selectNight(anchor), clamped: true }
+    return moveCheckIn(anchor, pointer, rules)
+  }
+  return { selection: selectNight(anchor), clamped: false }
 }

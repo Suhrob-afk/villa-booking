@@ -21,6 +21,8 @@ interface TelegramWebApp {
   HapticFeedback?: {
     impactOccurred(style: 'light' | 'medium' | 'heavy'): void
     notificationOccurred(type: 'error' | 'success' | 'warning'): void
+    /** A light tick for a value changing under the finger, e.g. a picker. */
+    selectionChanged?(): void
   }
   onEvent?(event: string, cb: () => void): void
   offEvent?(event: string, cb: () => void): void
@@ -98,6 +100,11 @@ export function colorScheme(): 'light' | 'dark' {
 
 export function haptic(style: 'light' | 'medium' | 'heavy' = 'light'): void {
   tg()?.HapticFeedback?.impactOccurred(style)
+}
+
+/** The picker tick: the dragged date moved on by one. */
+export function selectionTick(): void {
+  tg()?.HapticFeedback?.selectionChanged?.()
 }
 
 export function notify(type: 'error' | 'success' | 'warning'): void {
