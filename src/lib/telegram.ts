@@ -28,6 +28,9 @@ interface TelegramWebApp {
   showAlert?(message: string, cb?: () => void): void
   /** Opens a t.me link inside Telegram itself, without leaving for a browser. */
   openTelegramLink?(url: string): void
+  /** Bot API 7.7+: whether a vertical swipe may minimise or close the Mini App. */
+  disableVerticalSwipes?(): void
+  enableVerticalSwipes?(): void
 }
 
 declare global {
@@ -145,4 +148,16 @@ export function openTelegramLink(url: string): boolean {
   if (!app?.openTelegramLink) return false
   app.openTelegramLink(url)
   return true
+}
+
+/**
+ * Stops (or allows again) Telegram's swipe-down-to-close while the guest drags
+ * across the calendar. Needs Bot API 7.7; on older clients this does nothing
+ * and a drag simply has to live with the gesture.
+ */
+export function setVerticalSwipesAllowed(allowed: boolean): void {
+  const app = tg()
+  if (!app?.isVersionAtLeast?.('7.7')) return
+  if (allowed) app.enableVerticalSwipes?.()
+  else app.disableVerticalSwipes?.()
 }
