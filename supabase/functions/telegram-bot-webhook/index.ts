@@ -18,6 +18,11 @@
 // And it handles a villa owner's taps on the Deposit received / Not received
 // buttons that mark-deposit-sent sends them -- see handleBookingCallback().
 //
+// And subscriptions: /subscribe (also /start subscribe, which the app's banner
+// opens, and a Subscribe button on /start), the receipt screenshot that
+// follows, and the admin's Confirm / Reject taps. All of it goes through a
+// PaymentProvider (../_shared/payments/provider.ts), never Paynet directly.
+//
 // Secrets:
 //   TELEGRAM_BOT_TOKEN       — same bot as the Mini App
 //   MINI_APP_URL             — https URL the "Open App" button opens
@@ -26,7 +31,11 @@
 //                              this endpoint writes phone numbers, so an
 //                              unauthenticated one would let anybody set any
 //                              user's phone.
+//   ADMIN_TELEGRAM_ID        — the Telegram user id of the one person who
+//                              confirms subscription payments. Taps from
+//                              anyone else are refused. Unset = nobody can.
 // Injected: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+// Bundled file: assets/paynet-qr.png (static_files in supabase/config.toml)
 // ============================================================================
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
@@ -42,6 +51,25 @@ import {
   type Footer,
   type Lang as OwnerLang,
 } from '../_shared/owner-bot.ts'
+import { ManualPaynetProvider } from '../_shared/payments/manual-paynet.ts'
+import {
+  SUBSCRIPTION_DAYS,
+  SUBSCRIPTION_PRICE_UZS,
+  type IncomingReceipt,
+  type PaymentProvider,
+} from '../_shared/payments/provider.ts'
+import {
+  adminReviewMessage,
+  botUpload,
+  dayMonth,
+  formatUzs,
+  hasActiveSubscription,
+  loadPaymentContext,
+  openReceiptWindow,
+  paidUntil,
+  parseSubscriptionCallback,
+  receiptWindowOpen,
+} from '../_shared/payments/subscription.ts'
 import { COPY, isLang, LANGUAGE_BUTTONS, LANGUAGE_PROMPT, type Lang } from './copy.ts'
 
 const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? ''
@@ -53,6 +81,18 @@ const admin = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
   { auth: { persistSession: false } },
 )
+
+const ADMIN_TELEGRAM_ID = Number(Deno.env.get('ADMIN_TELEGRAM_ID') ?? '') || null
+
+/**
+ * The active payment provider. Moving to Payme or Click means constructing a
+ * different PaymentProvider here; nothing else in this file changes.
+ */
+const payments: PaymentProvider = new ManualPaynetProvider({
+  admin,
+  adminTelegramId: ADMIN_TELEGRAM_ID,
+  loadQr: () => Deno.readFile(new URL('./assets/paynet-qr.png', import.meta.url)),
+})
 
 // ------------------------------------------------------------ Telegram ----
 
@@ -109,6 +149,28 @@ const identityKeyboard = (lang: Lang) => ({
 const openAppKeyboard = (lang: Lang) => ({
   inline_keyboard: [[{ text: COPY[lang].openApp, web_app: { url: MINI_APP_URL } }]],
 })
+
+/**
+ * Open App, plus Subscribe for someone who owns villas -- or says they will --
+ * and has no active subscription. A makler with no villas of their own never
+ * sees it: maklers are never charged.
+ */
+async function startKeyboard(lang: Lang, telegramId: number): Promise<Json> {
+  const keyboard = openAppKeyboard(lang)
+  try {
+    const { data: user } = await admin.from('users').select('id, is_owner').eq('telegram_id', telegramId).maybeSingle()
+    if (!user) return keyboard
+    const { count } = await admin.from('villas').select('id', { count: 'exact', head: true }).eq('owner_id', user.id)
+    if (!user.is_owner && !count) return keyboard
+    if (await hasActiveSubscription(admin, user.id as string)) return keyboard
+    return {
+      inline_keyboard: [...keyboard.inline_keyboard, [{ text: COPY[lang].subscribeButton, callback_data: 'sub:start' }]],
+    }
+  } catch (err) {
+    console.error(`[subscription] could not build the start keyboard: ${(err as Error).message}`)
+    return keyboard
+  }
+}
 
 // ----------------------------------------------------------------- state --
 
@@ -288,7 +350,7 @@ async function startConversation(chatId: number, telegramId: number): Promise<vo
     const lang = langOf(state)
     if (data) {
       const name = (data.full_name ?? data.name ?? '') as string
-      await send(chatId, COPY[lang].alreadyDone(name, data.oikoz_id as string), openAppKeyboard(lang))
+      await send(chatId, COPY[lang].alreadyDone(name, data.oikoz_id as string), await startKeyboard(lang, telegramId))
       return
     }
     // State says done but the profile is gone — fall through and redo it.
@@ -310,6 +372,20 @@ async function handleCallback(cq: Json): Promise<void> {
   const booking = parseBookingCallback(data)
   if (booking) {
     await handleBookingCallback(id, from.id, message, booking.action, booking.bookingId)
+    return
+  }
+
+  // The admin's Confirm / Reject on a subscription payment.
+  const payment = parseSubscriptionCallback(data)
+  if (payment) {
+    await handleSubscriptionCallback(id, from.id, message, payment.action, payment.paymentId)
+    return
+  }
+
+  // Subscribe on the /start message. Its keyboard stays, so Open App does too.
+  if (data === 'sub:start') {
+    await callTelegram('answerCallbackQuery', { callback_query_id: id })
+    await startSubscribe(message.chat.id, from.id)
     return
   }
 
@@ -374,7 +450,7 @@ async function handleCallback(cq: Json): Promise<void> {
       await send(chatId, COPY[lang].restartHint)
       return
     }
-    await send(chatId, COPY[lang].done(result.name, result.oikozId), openAppKeyboard(lang))
+    await send(chatId, COPY[lang].done(result.name, result.oikozId), await startKeyboard(lang, from.id))
   }
 }
 
@@ -495,6 +571,190 @@ async function handleBookingCallback(
   }
 }
 
+// ------------------------------------------------------- subscriptions ----
+
+/** sendPhoto with the image's own bytes (multipart): the QR has no public URL. */
+async function sendPhotoBytes(chatId: number, photo: { bytes: Uint8Array; filename: string; contentType: string }) {
+  const form = new FormData()
+  form.append('chat_id', String(chatId))
+  form.append('photo', new Blob([new Uint8Array(photo.bytes)], { type: photo.contentType }), photo.filename)
+  const sent = await botUpload('sendPhoto', form)
+  if (!sent.ok) console.error(`[subscription] could not send the QR to chat ${chatId}: ${sent.error}`)
+  return sent.ok
+}
+
+/**
+ * /subscribe, /start subscribe, or the Subscribe button. Open to anyone with
+ * a profile: whoever creates a villa pays, whatever their role flags say. Sends
+ * the price and what it unlocks, then the provider's instructions, and opens
+ * the receipt window so the next screenshot is taken as a receipt.
+ */
+async function startSubscribe(chatId: number, telegramId: number): Promise<void> {
+  const { data: user } = await admin.from('users').select('id, language').eq('telegram_id', telegramId).maybeSingle()
+  if (!user) {
+    await send(chatId, COPY.en.restartHint)
+    return
+  }
+  const lang: Lang = isLang(user.language) ? (user.language as Lang) : 'en'
+  const copy = COPY[lang]
+
+  const [active, until] = await Promise.all([
+    hasActiveSubscription(admin, user.id as string),
+    paidUntil(admin, user.id as string),
+  ])
+  const intro = copy.subscribeIntro(formatUzs(SUBSCRIPTION_PRICE_UZS), SUBSCRIPTION_DAYS)
+  const note = active && until && Date.parse(until) > Date.now()
+    ? `\n\n${copy.subscribeActiveNote(dayMonth(until, lang), SUBSCRIPTION_DAYS)}`
+    : ''
+  await send(chatId, intro + note)
+
+  // No QR, no payment: the instructions without it would only confuse.
+  const instructions = await payments.instructions(lang)
+  if (!instructions.photo || !(await sendPhotoBytes(chatId, instructions.photo))) {
+    await send(chatId, copy.subscribeQrMissing)
+    return
+  }
+  await send(chatId, instructions.text)
+  await openReceiptWindow(admin, user.id as string)
+}
+
+/** A photo, or a file sent as a document, as the provider will see it. */
+function receiptFrom(message: Json): IncomingReceipt | null {
+  const photos = message.photo as { file_id: string; file_size?: number }[] | undefined
+  if (photos?.length) {
+    const largest = photos[photos.length - 1]
+    return { telegramFileId: largest.file_id, kind: 'photo', contentType: 'image/jpeg', sizeBytes: largest.file_size ?? null }
+  }
+  const doc = message.document as { file_id: string; mime_type?: string; file_size?: number } | undefined
+  if (doc) {
+    return { telegramFileId: doc.file_id, kind: 'document', contentType: doc.mime_type ?? '', sizeBytes: doc.file_size ?? null }
+  }
+  return null
+}
+
+/**
+ * Inside the receipt window: a screenshot is handed to the provider; anything
+ * else gets a request for one. Returns false when the window is closed, so
+ * the message goes on to the ordinary conversation.
+ */
+async function handleReceiptWindow(chatId: number, telegramId: number, message: Json): Promise<boolean> {
+  const { data: user } = await admin.from('users').select('id, language').eq('telegram_id', telegramId).maybeSingle()
+  if (!user || !payments.acceptReceipt) return false
+  if (!(await receiptWindowOpen(admin, user.id as string))) return false
+
+  const copy = COPY[isLang(user.language) ? (user.language as Lang) : 'en']
+  const receipt = receiptFrom(message)
+  if (!receipt) {
+    await send(chatId, copy.receiptAskScreenshot)
+    return true
+  }
+
+  const result = await payments.acceptReceipt(user.id as string, receipt)
+  switch (result.outcome) {
+    case 'received':
+      await send(chatId, copy.receiptReceived)
+      break
+    case 'already_pending':
+      await send(chatId, copy.receiptAlreadyPending)
+      break
+    case 'unsupported':
+      await send(chatId, copy.receiptAskScreenshot)
+      break
+    case 'too_large':
+      await send(chatId, copy.receiptTooLarge)
+      break
+    default:
+      await send(chatId, copy.receiptFailed)
+  }
+  return true
+}
+
+/**
+ * The admin's ✅ Confirm payment / ❌ Reject. Same shape as the deposit
+ * buttons: only ADMIN_TELEGRAM_ID may act -- anyone else's tap is answered
+ * silently and changes nothing -- the decision is made under a row lock in the
+ * database (mark_subscription_paid / reject_subscription_payment, through the
+ * provider), and the message is rebuilt from the payment as it now stands. A
+ * double tap, or a tap on a payment already handled, says "Already handled"
+ * and grants nothing. The owner hears only from the tap that changed it.
+ */
+async function handleSubscriptionCallback(
+  callbackId: string,
+  tapperId: number,
+  message: { chat: { id: number }; message_id: number },
+  action: 'c' | 'r',
+  paymentId: string,
+): Promise<void> {
+  const answer = (text?: string) =>
+    botCall('answerCallbackQuery', { callback_query_id: callbackId, ...(text ? { text } : {}) })
+
+  if (!ADMIN_TELEGRAM_ID || tapperId !== ADMIN_TELEGRAM_ID) {
+    console.warn(`[subscription] ignored ${action} on payment ${paymentId} from non-admin telegram ${tapperId}`)
+    await answer()
+    return
+  }
+
+  try {
+    const before = await loadPaymentContext(admin, paymentId)
+    if (!before) {
+      await answer('Payment not found')
+      return
+    }
+
+    const userId = before.payment.user_id
+    const by = `telegram:${tapperId}`
+    const result = action === 'c'
+      ? await payments.markPaid(userId, paymentId, by)
+      : await payments.markRejected(userId, paymentId, by)
+
+    await answer(
+      result.outcome === 'confirmed'
+        ? 'Confirmed'
+        : result.outcome === 'rejected'
+          ? 'Rejected'
+          : result.outcome === 'already_handled'
+            ? 'Already handled'
+            : 'Payment not found',
+    )
+
+    const ctx = await loadPaymentContext(admin, paymentId)
+    if (ctx) {
+      const review = adminReviewMessage(ctx)
+      const edit = await botCall('editMessageCaption', {
+        chat_id: message.chat.id,
+        message_id: message.message_id,
+        caption: review.caption,
+        parse_mode: 'HTML',
+        reply_markup: review.reply_markup,
+      })
+      if (!edit.ok && !edit.error.includes('message is not modified')) {
+        console.error(`[subscription] could not edit the review of payment ${paymentId}: ${edit.error}`)
+      }
+    }
+
+    const owner = before.user
+    const copy = COPY[owner.lang]
+    if (result.outcome === 'confirmed') {
+      const sent = await botCall('sendMessage', {
+        chat_id: owner.telegramId,
+        text: copy.subscriptionActive(dayMonth(result.paidUntil, owner.lang)),
+      })
+      if (!sent.ok) console.error(`[subscription] could not tell the owner of payment ${paymentId}: ${sent.error}`)
+    } else if (result.outcome === 'rejected') {
+      // They may resend at once: reopen the window their screenshot closed.
+      await openReceiptWindow(admin, userId)
+      const sent = await botCall('sendMessage', {
+        chat_id: owner.telegramId,
+        text: copy.subscriptionRejected(formatUzs(before.payment.amount || SUBSCRIPTION_PRICE_UZS)),
+      })
+      if (!sent.ok) console.error(`[subscription] could not tell the owner of payment ${paymentId}: ${sent.error}`)
+    }
+  } catch (err) {
+    console.error(`[subscription] ${action} on payment ${paymentId} failed: ${(err as Error).message}`)
+    await answer('Something went wrong. Please try again.')
+  }
+}
+
 /**
  * A contact shared from the public booking page. The Mini App cannot read the
  * phone itself -- requestContact() hands it to the bot as a message -- so this
@@ -557,6 +817,12 @@ async function handleMessage(message: Json): Promise<void> {
   const text = ((message.text as string) ?? '').trim()
   const contact = message.contact as { phone_number: string; user_id?: number } | undefined
 
+  // /start subscribe is what the app's banner opens (t.me/<bot>?start=subscribe).
+  if (text === '/subscribe' || text.startsWith('/subscribe@') || /^\/start\s+subscribe$/.test(text)) {
+    await startSubscribe(chatId, telegramId)
+    return
+  }
+
   if (text.startsWith('/start')) {
     await startConversation(chatId, telegramId)
     return
@@ -581,6 +847,9 @@ async function handleMessage(message: Json): Promise<void> {
     await savePublicContact(chatId, telegramId, contact)
     return
   }
+
+  // After /subscribe, the next screenshot is the receipt.
+  if (await handleReceiptWindow(chatId, telegramId, message)) return
 
   if (!state) {
     await send(chatId, COPY.en.restartHint)

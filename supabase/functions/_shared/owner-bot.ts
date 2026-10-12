@@ -133,7 +133,7 @@ export async function loadBookingContext(admin: SupabaseClient, bookingId: strin
 
 // ------------------------------------------------------------- formatting ----
 
-const MONTHS_SHORT: Record<Lang, string[]> = {
+export const MONTHS_SHORT: Record<Lang, string[]> = {
   en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
   ru: ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'],
   uz: ['yan', 'fev', 'mar', 'apr', 'may', 'iyn', 'iyl', 'avg', 'sen', 'okt', 'noy', 'dek'],
@@ -215,7 +215,7 @@ function stay(b: BookingContext['booking'], lang: Lang): string {
 }
 
 /** Deposits are always UZS. Same Intl formatting as the app's formatMoney(). */
-function formatUzs(amount: number): string {
+export function formatUzs(amount: number): string {
   try {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'UZS', maximumFractionDigits: 0 }).format(amount)
   } catch {

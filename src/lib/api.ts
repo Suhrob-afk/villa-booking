@@ -1,4 +1,5 @@
 import { assertOnline, withCache } from './offline'
+import { currentLang, translate } from './strings'
 import { supabase } from './supabase'
 import type {
   BlockedDate,
@@ -13,8 +14,23 @@ import type {
   VillaWithAccess,
 } from './types'
 
+/**
+ * The database's own words, except the subscription guards (0024), which are
+ * said in the user's language: they are the one refusal anyone can hit
+ * through any screen, and a raw "oikoz:..." is no explanation.
+ */
+function dbError(error: { message: string }): Error {
+  if (error.message.includes('oikoz:villa_owner_inactive')) {
+    return new Error(translate(currentLang(), 'error.villaOwnerInactive'))
+  }
+  if (error.message.includes('oikoz:subscription_required')) {
+    return new Error(translate(currentLang(), 'error.subscriptionRequired'))
+  }
+  return new Error(error.message)
+}
+
 function unwrap<T>({ data, error }: { data: T | null; error: { message: string } | null }): T {
-  if (error) throw new Error(error.message)
+  if (error) throw dbError(error)
   return data as T
 }
 
@@ -37,7 +53,7 @@ async function cached<T>(key: string, load: () => Promise<T>): Promise<T> {
 export async function updateOwnLanguage(userId: string, language: Lang): Promise<void> {
   assertOnline()
   const { error } = await supabase.from('users').update({ language }).eq('id', userId)
-  if (error) throw new Error(error.message)
+  if (error) throw dbError(error)
 }
 
 // ------------------------------------------------------------------ villas --
@@ -86,7 +102,7 @@ export async function updateVilla(villaId: string, input: VillaInput): Promise<V
 export async function deleteVilla(villaId: string): Promise<void> {
   assertOnline()
   const { error } = await supabase.from('villas').delete().eq('id', villaId)
-  if (error) throw new Error(error.message)
+  if (error) throw dbError(error)
 }
 
 /** Archived villas leave the active list; nothing about their data changes. */
@@ -105,7 +121,7 @@ export async function setVillaArchived(villaId: string, archived: boolean): Prom
     .from('villas')
     .update({ archived_at: archived ? new Date().toISOString() : null })
     .eq('id', villaId)
-  if (error) throw new Error(error.message)
+  if (error) throw dbError(error)
 }
 
 /**
@@ -117,7 +133,7 @@ async function loadVillaBookingCount(villaId: string): Promise<number> {
     .from('bookings')
     .select('id', { count: 'exact', head: true })
     .eq('villa_id', villaId)
-  if (error) throw new Error(error.message)
+  if (error) throw dbError(error)
   return count ?? 0
 }
 
@@ -146,7 +162,7 @@ export async function saveVillaPayoutCard(villaId: string, cardNumber: string | 
         .from('villa_payout_details')
         .upsert({ villa_id: villaId, card_number: cardNumber }, { onConflict: 'villa_id' })
     : await supabase.from('villa_payout_details').delete().eq('villa_id', villaId)
-  if (error) throw new Error(error.message)
+  if (error) throw dbError(error)
 }
 
 export interface MaklerRef {
@@ -204,7 +220,7 @@ export async function unlinkMakler(villaId: string, managerId: string): Promise<
     .delete()
     .eq('villa_id', villaId)
     .eq('manager_id', managerId)
-  if (error) throw new Error(error.message)
+  if (error) throw dbError(error)
 }
 
 // --------------------------------------------------------------- bookings --
@@ -355,7 +371,7 @@ export async function createBlock(input: {
 export async function deleteBlock(blockId: string): Promise<void> {
   assertOnline()
   const { error } = await supabase.from('blocked_dates').delete().eq('id', blockId)
-  if (error) throw new Error(error.message)
+  if (error) throw dbError(error)
 }
 
 // ------------------------------------------------------------ commissions --

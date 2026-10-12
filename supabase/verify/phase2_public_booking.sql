@@ -65,6 +65,20 @@ insert into public.villas (id, owner_id, name, currency, villa_code, weekday_pri
 insert into public.villa_payout_details (villa_id, card_number) values
   ('b0000000-0000-4000-8000-000000000011', '8600123412341234');
 
+-- Since 0024 an owner needs an active subscription to change their villas,
+-- and a lapsed owner's villa takes no new holds. Give this script's fixture
+-- owners one when the table exists, so the script runs before and after 0024.
+do $$ begin
+  if to_regclass('public.subscriptions') is not null then
+    execute $q$
+      insert into public.subscriptions (user_id, paid_until)
+      select distinct owner_id, now() + interval '30 days'
+        from public.villas where villa_code like 'villa_test%'
+      on conflict (user_id) do update set paid_until = excluded.paid_until
+    $q$;
+  end if;
+end $$;
+
 -- The Monday at least 30 days out, Tashkent time: a Mon->Mon stay is exactly
 -- 5 weekday and 2 weekend nights.
 create temporary table p2 on commit drop as

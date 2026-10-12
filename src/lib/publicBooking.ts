@@ -27,6 +27,11 @@ export interface PublicVilla {
   owner_name: string
   /** False until the owner has entered a payout card. */
   accepting_bookings: boolean
+  /**
+   * The owner's subscription has lapsed (0024): no new bookings, while every
+   * existing one carries on. accepting_bookings is false too.
+   */
+  bookings_paused: boolean
 }
 
 /** Half-open [start, end), like bookings and blocks. */
@@ -90,6 +95,7 @@ export type PublicErrorCode =
   | 'not_found'
   | 'not_registered'
   | 'not_accepting'
+  | 'bookings_paused'
   | 'phone_required'
   | 'invalid_dates'
   | 'too_many_holds'

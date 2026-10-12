@@ -6,7 +6,9 @@ import { formatRange } from '../lib/dates'
 import { bookingTitle, currencyCode, DEPOSIT_CURRENCY, formatMoney } from '../lib/format'
 import { useI18n } from '../lib/i18n'
 import { useOnline } from '../lib/offline'
+import { isWritable, useMySubscription } from '../lib/subscription'
 import { notify } from '../lib/telegram'
+import { ReadOnlyNotice } from '../components/Subscription'
 import { CombinedTotal, Empty, ErrorState, Loading } from '../components/ui'
 
 type ViewAs = 'owner' | 'makler' | 'deposits'
@@ -24,6 +26,8 @@ export default function CommissionsTab() {
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [viewAs, setViewAs] = useState<ViewAs>('owner')
+  const subscription = useMySubscription()
+  const ownLapsed = subscription.state !== null && !isWritable(subscription.state)
 
   const load = useCallback(async () => {
     setError(null)
@@ -81,6 +85,15 @@ export default function CommissionsTab() {
   if (error && !rows) return <ErrorState message={error} onRetry={load} />
   if (!rows) return <Loading />
 
+  /**
+   * Settling commission or marking a deposit is a change to the booking, and
+   * follows the villa owner's subscription (0024). Only owners see these
+   * toggles, and only on their own villas does the database let them act.
+   */
+  const ownerId = user.id
+  const isLocked = (row: CommissionRow) => ownLapsed && row.villa?.owner_id === ownerId
+  const ownsAny = rows.some((row) => row.villa?.owner_id === ownerId)
+
   return (
     <>
       {both && (
@@ -119,18 +132,20 @@ export default function CommissionsTab() {
           </button>
         </div>
 
+        {ownLapsed && ownsAny && effectiveView !== 'makler' && <ReadOnlyNotice access="own_lapsed" />}
         {error && <div className="alert alert-error">{error}</div>}
         {effectiveView === 'deposits' ? (
           <PendingDeposits
             rows={rows.filter((row) => !row.deposit_paid)}
             canToggle={user.is_owner}
+            isLocked={isLocked}
             busyId={busyId}
             onMarkPaid={markDepositPaid}
           />
         ) : effectiveView === 'makler' ? (
           <MaklerView rows={rows.filter((row) => row.manager_id === user.id)} />
         ) : (
-          <OwnerView rows={rows} busyId={busyId} onTogglePaid={togglePaid} />
+          <OwnerView rows={rows} isLocked={isLocked} busyId={busyId} onTogglePaid={togglePaid} />
         )}
     </>
   )
@@ -218,10 +233,12 @@ interface OwnerTotal {
 
 function OwnerView({
   rows,
+  isLocked,
   busyId,
   onTogglePaid,
 }: {
   rows: CommissionRow[]
+  isLocked: (row: CommissionRow) => boolean
   busyId: string | null
   onTogglePaid: (row: CommissionRow) => void
 }) {
@@ -323,7 +340,7 @@ function OwnerView({
               <button
                 type="button"
                 className="toggle"
-                disabled={busyId === row.id || !online}
+                disabled={busyId === row.id || !online || isLocked(row)}
                 onClick={() => onTogglePaid(row)}
               >
                 {t('commissions.markPaid')}
@@ -348,7 +365,7 @@ function OwnerView({
                 <button
                   type="button"
                   className="toggle paid"
-                  disabled={busyId === row.id || !online}
+                  disabled={busyId === row.id || !online || isLocked(row)}
                   onClick={() => onTogglePaid(row)}
                 >
                   ✓ {formatMoney(row.manager_commission, currencyCode(row.currency))}
@@ -371,11 +388,13 @@ function OwnerView({
 function PendingDeposits({
   rows,
   canToggle,
+  isLocked,
   busyId,
   onMarkPaid,
 }: {
   rows: CommissionRow[]
   canToggle: boolean
+  isLocked: (row: CommissionRow) => boolean
   busyId: string | null
   onMarkPaid: (row: CommissionRow) => void
 }) {
@@ -420,7 +439,7 @@ function PendingDeposits({
               <button
                 type="button"
                 className="toggle"
-                disabled={busyId === row.id || !online}
+                disabled={busyId === row.id || !online || isLocked(row)}
                 onClick={() => onMarkPaid(row)}
               >
                 {t('commissions.markReceived')}

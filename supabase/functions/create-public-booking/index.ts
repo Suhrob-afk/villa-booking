@@ -6,7 +6,7 @@
 // Response: { hold }   -- the new 30-minute hold, with the owner's card number
 //                         and display name, for this visitor only
 // Errors:   { code }   -- not_registered, phone_required, not_found,
-//                         not_accepting, invalid_dates, invalid_details,
+//                         not_accepting, bookings_paused, invalid_dates, invalid_details,
 //                         too_many_guests, too_many_holds, dates_taken
 //
 // The insert and every rule live in public.create_public_hold() (the
@@ -45,6 +45,8 @@ import { isVillaCode } from '../_shared/telegram.ts'
 const STATUS: Partial<Record<ErrorCode, number>> = {
   not_found: 404,
   not_accepting: 409,
+  // The villa's owner has no active subscription (0024): no new holds.
+  bookings_paused: 409,
   phone_required: 409,
   invalid_dates: 400,
   invalid_details: 400,

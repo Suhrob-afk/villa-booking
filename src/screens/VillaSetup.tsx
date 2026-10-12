@@ -21,12 +21,14 @@ import { useAuth } from '../lib/auth'
 import { CURRENCIES, DEPOSIT_CURRENCY, DEPOSIT_SUGGESTIONS, MIN_DEPOSIT } from '../lib/format'
 import { bookingLink, formatCardNumber } from '../lib/holds'
 import { shareBookingLink } from '../lib/share'
+import { isWritable, useMySubscription } from '../lib/subscription'
 import { useI18n } from '../lib/i18n'
 import { useOnline } from '../lib/offline'
 import { confirmAction, notify } from '../lib/telegram'
 import { useBackButton } from '../lib/useBackButton'
 import type { User } from '../lib/types'
 import MoneyInput from '../components/MoneyInput'
+import { ReadOnlyNotice } from '../components/Subscription'
 import { Alert, ErrorState, Loading, TopBar } from '../components/ui'
 
 interface FormState {
@@ -81,6 +83,10 @@ export default function VillaSetup() {
   const { t, tn } = useI18n()
   const online = useOnline()
   const isNew = !villaId
+  // Villa Setup is the owner's alone, so their own subscription decides: to
+  // create the villa, or to change it. Not known yet counts as allowed.
+  const subscription = useMySubscription()
+  const locked = subscription.state !== null && !isWritable(subscription.state)
 
   const [form, setForm] = useState<FormState>(BLANK)
   const [managers, setManagers] = useState<User[]>([])
@@ -332,6 +338,7 @@ export default function VillaSetup() {
     <>
       <TopBar title={isNew ? t('setup.titleNew') : t('setup.title')} subtitle={villaCode ?? undefined} onBack={goBack} />
       <main className="screen">
+        {locked && <ReadOnlyNotice access={isNew ? 'create' : 'own_lapsed'} />}
         {error && <Alert>{error}</Alert>}
 
         <div className="card card-pad">
@@ -466,6 +473,7 @@ export default function VillaSetup() {
                   <button
                     type="button"
                     className="button button-danger button-small"
+                    disabled={locked}
                     onClick={() => void removeMakler(manager)}
                   >
                     {t('common.remove')}
@@ -486,7 +494,12 @@ export default function VillaSetup() {
                   placeholder="oikoz_id0001"
                 />
               </div>
-              <button type="button" className="button button-secondary" onClick={() => void addMakler()}>
+              <button
+                type="button"
+                className="button button-secondary"
+                disabled={locked}
+                onClick={() => void addMakler()}
+              >
                 {t('setup.linkMakler')}
               </button>
               <p className="field-hint">{t('setup.addMaklerHint')}</p>
@@ -574,7 +587,7 @@ export default function VillaSetup() {
         )}
 
         <div className="button-row">
-          <button type="button" className="button" disabled={saving || !online} onClick={() => void save()}>
+          <button type="button" className="button" disabled={saving || !online || locked} onClick={() => void save()}>
             {saving ? t('common.saving') : isNew ? t('setup.createVilla') : t('common.saveChanges')}
           </button>
         </div>
@@ -589,7 +602,7 @@ export default function VillaSetup() {
                   <button
                     type="button"
                     className="button button-secondary"
-                    disabled={removing}
+                    disabled={removing || locked}
                     onClick={() => void restoreVilla()}
                   >
                     {t('setup.unarchiveVilla')}
@@ -605,7 +618,7 @@ export default function VillaSetup() {
                   <button
                     type="button"
                     className={bookingCount > 0 ? 'button button-secondary' : 'button button-danger'}
-                    disabled={removing}
+                    disabled={removing || locked}
                     onClick={() => void removeVilla()}
                   >
                     {bookingCount > 0 ? t('setup.archiveVilla') : t('setup.deleteVilla')}

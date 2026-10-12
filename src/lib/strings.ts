@@ -547,6 +547,21 @@ const en = {
   'public.marking': 'Sending…',
   'public.markSentHint': 'Tap this only once the transfer has gone through. The owner checks it before confirming.',
   'public.datesLabel': 'Dates',
+
+  // -------------------------------------------------- subscriptions --
+  'sub.bannerNeverTitle': 'Subscribe to manage your villas',
+  'sub.bannerNeverBody': 'An Oikoz subscription lets you add and edit villas, log bookings, block dates and take new bookings from your link. Everything stays visible either way.',
+  'sub.bannerGraceTitle': 'Your subscription has ended',
+  'sub.bannerGraceBody': 'Renew by {date} to keep editing. Until then everything works as usual.',
+  'sub.bannerLapsedTitle': 'Your villas are read-only',
+  'sub.bannerLapsedBody': 'Your subscription ended on {date}. Everything stays visible, but villas, bookings and blocked dates can’t be changed, and new bookings from your link are paused, until you renew.',
+  'sub.subscribe': 'Subscribe · {price} / {days} days',
+  'sub.noticeOwn': 'Your subscription has ended, so this villa is read-only. Renew to make changes.',
+  'sub.noticeOwner': 'This villa is read-only until its owner renews their Oikoz subscription.',
+  'sub.noticeCreate': 'Adding a villa needs an active Oikoz subscription.',
+  'error.subscriptionRequired': 'Adding a villa needs an active Oikoz subscription. Send /subscribe to the bot to get one.',
+  'error.villaOwnerInactive': 'This villa is read-only until its owner renews their Oikoz subscription.',
+  'public.bookingsPaused': 'Bookings for this villa are paused right now. Existing bookings are not affected.',
 }
 
 export type StringKey = keyof typeof en
@@ -1010,6 +1025,21 @@ const ru: Record<StringKey, string> = {
   'public.marking': 'Отправляем…',
   'public.markSentHint': 'Нажимайте только после того, как перевод прошёл. Владелец проверит его перед подтверждением.',
   'public.datesLabel': 'Даты',
+
+  // -------------------------------------------------- subscriptions --
+  'sub.bannerNeverTitle': 'Оформите подписку, чтобы управлять виллами',
+  'sub.bannerNeverBody': 'С подпиской Oikoz можно добавлять и редактировать виллы, вносить брони, блокировать даты и принимать новые брони по вашей ссылке. Всё остаётся видно в любом случае.',
+  'sub.bannerGraceTitle': 'Ваша подписка закончилась',
+  'sub.bannerGraceBody': 'Продлите её до {date}, чтобы и дальше вносить изменения. До этого всё работает как обычно.',
+  'sub.bannerLapsedTitle': 'Ваши виллы доступны только для просмотра',
+  'sub.bannerLapsedBody': 'Подписка закончилась {date}. Всё остаётся видно, но виллы, брони и заблокированные даты нельзя менять, а новые брони по вашей ссылке приостановлены, пока вы не продлите подписку.',
+  'sub.subscribe': 'Оформить · {price} / {days} дней',
+  'sub.noticeOwn': 'Ваша подписка закончилась, поэтому вилла доступна только для просмотра. Продлите подписку, чтобы вносить изменения.',
+  'sub.noticeOwner': 'Эта вилла доступна только для просмотра, пока владелец не продлит подписку Oikoz.',
+  'sub.noticeCreate': 'Чтобы добавить виллу, нужна активная подписка Oikoz.',
+  'error.subscriptionRequired': 'Чтобы добавить виллу, нужна активная подписка Oikoz. Отправьте боту /subscribe, чтобы её оформить.',
+  'error.villaOwnerInactive': 'Эта вилла доступна только для просмотра, пока владелец не продлит подписку Oikoz.',
+  'public.bookingsPaused': 'Бронирование этой виллы сейчас приостановлено. Существующих броней это не касается.',
 }
 
 const uz: Record<StringKey, string> = {
@@ -1471,6 +1501,21 @@ const uz: Record<StringKey, string> = {
   'public.marking': 'Yuborilmoqda…',
   'public.markSentHint': 'Faqat o‘tkazma amalga oshgandan keyin bosing. Egasi tasdiqlashdan oldin uni tekshiradi.',
   'public.datesLabel': 'Sanalar',
+
+  // -------------------------------------------------- subscriptions --
+  'sub.bannerNeverTitle': 'Villalaringizni boshqarish uchun obuna bo‘ling',
+  'sub.bannerNeverBody': 'Oikoz obunasi bilan villalarni qo‘shish va tahrirlash, bronlarni kiritish, sanalarni band qilish va havolangiz orqali yangi bronlarni qabul qilish mumkin. Hammasi baribir ko‘rinib turadi.',
+  'sub.bannerGraceTitle': 'Obunangiz tugadi',
+  'sub.bannerGraceBody': 'O‘zgartirishda davom etish uchun uni {date} gacha uzaytiring. Ungacha hammasi odatdagidek ishlaydi.',
+  'sub.bannerLapsedTitle': 'Villalaringiz faqat ko‘rish uchun',
+  'sub.bannerLapsedBody': 'Obunangiz {date} kuni tugagan. Hammasi ko‘rinib turadi, lekin obunani uzaytirmaguningizcha villalar, bronlar va band qilingan sanalarni o‘zgartirib bo‘lmaydi, havolangiz orqali yangi bronlar esa to‘xtatilgan.',
+  'sub.subscribe': 'Obuna bo‘lish · {price} / {days} kun',
+  'sub.noticeOwn': 'Obunangiz tugagani uchun bu villa faqat ko‘rish uchun. O‘zgartirish uchun obunani uzaytiring.',
+  'sub.noticeOwner': 'Egasi Oikoz obunasini uzaytirmaguncha bu villa faqat ko‘rish uchun.',
+  'sub.noticeCreate': 'Villa qo‘shish uchun faol Oikoz obunasi kerak.',
+  'error.subscriptionRequired': 'Villa qo‘shish uchun faol Oikoz obunasi kerak. Obuna bo‘lish uchun botga /subscribe yuboring.',
+  'error.villaOwnerInactive': 'Egasi Oikoz obunasini uzaytirmaguncha bu villa faqat ko‘rish uchun.',
+  'public.bookingsPaused': 'Bu villani bron qilish hozircha to‘xtatilgan. Mavjud bronlarga bu ta’sir qilmaydi.',
 }
 
 export const STRINGS: Record<Lang, Record<StringKey, string>> = { en, ru, uz }

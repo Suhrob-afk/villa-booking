@@ -6,9 +6,11 @@ import { useAuth } from '../lib/auth'
 import { formatMoney, formatPercent } from '../lib/format'
 import { useI18n } from '../lib/i18n'
 import { shareBookingLink } from '../lib/share'
+import { isWritable, useMySubscription } from '../lib/subscription'
 import { notify } from '../lib/telegram'
 import { useBackButton } from '../lib/useBackButton'
 import type { Villa, VillaWithAccess } from '../lib/types'
+import { ReadOnlyNotice, SubscriptionBanner } from '../components/Subscription'
 import { Empty, ErrorState, Loading, ProfileHeader, Toast } from '../components/ui'
 
 /**
@@ -111,6 +113,9 @@ export default function Home() {
   /** The share confirmation; `id` restarts the timer when the same text repeats. */
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null)
   const hideToast = useCallback(() => setToast(null), [])
+  const subscription = useMySubscription()
+  /** Tapped "add a villa" without a subscription: explain instead of opening the form. */
+  const [showCreateNotice, setShowCreateNotice] = useState(false)
 
   useBackButton(null)
 
@@ -148,6 +153,18 @@ export default function Home() {
 
   const isClient = !user.is_owner && !user.is_makler
 
+  // Creating a villa follows the creator's own subscription. Not known yet
+  // (null) counts as allowed: the database has the final word.
+  const canCreate = subscription.state === null || isWritable(subscription.state)
+  // Editing their villas follows it too, so only somebody who owns villas sees
+  // the banner -- a makler with none of their own never does.
+  const ownsVillas = owned.length > 0 || archived.length > 0
+
+  function addVilla() {
+    if (canCreate) navigate('/villa/new')
+    else setShowCreateNotice(true)
+  }
+
   return (
     <>
       <ProfileHeader
@@ -156,7 +173,7 @@ export default function Home() {
             <button
               type="button"
               className="icon-button"
-              onClick={() => navigate('/villa/new')}
+              onClick={addVilla}
               aria-label={t('home.addVillaAria')}
             >
               +
@@ -178,6 +195,9 @@ export default function Home() {
 
             {!error && villas !== null && (
               <>
+                {ownsVillas && <SubscriptionBanner />}
+                {showCreateNotice && !canCreate && <ReadOnlyNotice access="create" withButton={!ownsVillas} />}
+
                 {user.is_owner && (
                   <>
                     <p className="section-title">{t('home.myVillas')}</p>
@@ -185,7 +205,7 @@ export default function Home() {
                       <Empty title={t('home.noVillasTitle')}>
                         {t('home.noVillasBody')}
                         <div className="button-row">
-                          <button type="button" className="button" onClick={() => navigate('/villa/new')}>
+                          <button type="button" className="button" onClick={addVilla}>
                             {t('home.addVilla')}
                           </button>
                         </div>
@@ -227,7 +247,7 @@ export default function Home() {
                             <button
                               type="button"
                               className="button button-secondary button-small"
-                              disabled={busyId === villa.id}
+                              disabled={busyId === villa.id || !canCreate}
                               onClick={async () => {
                                 setBusyId(villa.id)
                                 setError(null)

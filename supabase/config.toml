@@ -419,6 +419,10 @@ verify_jwt = false
 [functions.telegram-bot-webhook]
 # Telegram signs webhook calls with a secret_token header, not a Supabase JWT.
 verify_jwt = false
+# The Paynet QR for /subscribe, bundled into the function rather than served
+# from any public URL. The file itself is supplied by the owner of the
+# account: assets/paynet-qr.png (see assets/README.md).
+static_files = ["./functions/telegram-bot-webhook/assets/*.png"]
 
 # The public booking page's functions. Each verifies Telegram initData itself
 # (HMAC and auth_date), which is a stronger check than a Supabase JWT here.

@@ -39,6 +39,20 @@ insert into public.villa_managers (villa_id, manager_id) values
 insert into public.villa_payout_details (villa_id, card_number) values
   ('b0000000-0000-4000-8000-000000000001', '8600123412341234');
 
+-- Since 0024 an owner needs an active subscription to change their villas,
+-- and a lapsed owner's villa takes no new holds. Give this script's fixture
+-- owners one when the table exists, so the script runs before and after 0024.
+do $$ begin
+  if to_regclass('public.subscriptions') is not null then
+    execute $q$
+      insert into public.subscriptions (user_id, paid_until)
+      select distinct owner_id, now() + interval '30 days'
+        from public.villas where villa_code like 'villa_test%'
+      on conflict (user_id) do update set paid_until = excluded.paid_until
+    $q$;
+  end if;
+end $$;
+
 -- H1: a live hold, 10-13 March 2099 (nights 10, 11, 12).
 insert into public.bookings (id, villa_id, client_name, check_in, check_out, status, hold_expires_at) values
   ('c0000000-0000-4000-8000-000000000001', 'b0000000-0000-4000-8000-000000000001',

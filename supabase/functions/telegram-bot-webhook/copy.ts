@@ -50,6 +50,21 @@ interface Copy {
   unexpected: string
   phoneSaved: string
   phoneSaveFailed: string
+
+  // ------------------------------------------------------- subscription --
+  subscribeButton: string
+  /** What it costs and what it unlocks. */
+  subscribeIntro: (price: string, days: number) => string
+  /** Added to the intro for someone already paid: paying now extends. */
+  subscribeActiveNote: (until: string, days: number) => string
+  subscribeQrMissing: string
+  receiptReceived: string
+  receiptAlreadyPending: string
+  receiptAskScreenshot: string
+  receiptTooLarge: string
+  receiptFailed: string
+  subscriptionActive: (until: string) => string
+  subscriptionRejected: (price: string) => string
 }
 
 export const COPY: Record<Lang, Copy> = {
@@ -77,6 +92,21 @@ export const COPY: Record<Lang, Copy> = {
     unexpected: 'Let’s finish the step above first.',
     phoneSaved: 'Thanks — your number is saved. Go back to the booking page to finish your reservation.',
     phoneSaveFailed: 'Sorry, I couldn’t save your number. Please go back to the booking page and try again.',
+    subscribeButton: '💳 Subscribe',
+    subscribeIntro: (price, days) =>
+      `💳 <b>Oikoz subscription — ${price} for ${days} days</b>\n\n` +
+      'It unlocks adding and editing your villas, logging and managing bookings, blocking dates, and taking new bookings from your booking link. Your maklers can work on your villas too.\n\n' +
+      'Without it, everything stays visible, but read-only.',
+    subscribeActiveNote: (until, days) => `Your subscription is active until ${until}. Paying now adds ${days} more days.`,
+    subscribeQrMissing: 'The QR code isn’t available right now. Please try /subscribe again a little later.',
+    receiptReceived: 'Received. I’ll confirm shortly.',
+    receiptAlreadyPending: 'Your previous receipt is still being checked. I’ll let you know shortly.',
+    receiptAskScreenshot: 'Please send the payment receipt as a screenshot.',
+    receiptTooLarge: 'That file is too large. Please send a screenshot of the receipt instead.',
+    receiptFailed: 'Sorry, I couldn’t save your receipt. Please send it again.',
+    subscriptionActive: (until) => `✅ Payment confirmed. Your subscription is active until ${until}.`,
+    subscriptionRejected: (price) =>
+      `❌ We couldn’t find your payment. Please check that you paid exactly ${price}, then send the receipt screenshot here again.`,
   },
 
   ru: {
@@ -103,6 +133,21 @@ export const COPY: Record<Lang, Copy> = {
     unexpected: 'Давайте сначала завершим текущий шаг.',
     phoneSaved: 'Спасибо — номер сохранён. Вернитесь на страницу бронирования, чтобы завершить бронь.',
     phoneSaveFailed: 'Не удалось сохранить номер. Вернитесь на страницу бронирования и попробуйте ещё раз.',
+    subscribeButton: '💳 Оформить подписку',
+    subscribeIntro: (price, days) =>
+      `💳 <b>Подписка Oikoz — ${price} на ${days} дней</b>\n\n` +
+      'С ней можно добавлять и редактировать виллы, вносить брони и управлять ими, блокировать даты и принимать новые брони по вашей ссылке. Ваши маклеры тоже смогут работать с вашими виллами.\n\n' +
+      'Без подписки всё остаётся видно, но только для просмотра.',
+    subscribeActiveNote: (until, days) => `Ваша подписка активна до ${until}. Оплата сейчас добавит ещё ${days} дней.`,
+    subscribeQrMissing: 'QR-код сейчас недоступен. Попробуйте /subscribe ещё раз чуть позже.',
+    receiptReceived: 'Получено. Скоро подтвержу.',
+    receiptAlreadyPending: 'Ваш предыдущий чек ещё проверяется. Скоро сообщу результат.',
+    receiptAskScreenshot: 'Пожалуйста, отправьте чек об оплате в виде скриншота.',
+    receiptTooLarge: 'Файл слишком большой. Пожалуйста, отправьте скриншот чека.',
+    receiptFailed: 'Не удалось сохранить чек. Пожалуйста, отправьте его ещё раз.',
+    subscriptionActive: (until) => `✅ Оплата подтверждена. Ваша подписка активна до ${until}.`,
+    subscriptionRejected: (price) =>
+      `❌ Мы не нашли вашу оплату. Проверьте, что оплатили ровно ${price}, и отправьте скриншот чека сюда ещё раз.`,
   },
 
   uz: {
@@ -129,5 +174,21 @@ export const COPY: Record<Lang, Copy> = {
     unexpected: 'Avval yuqoridagi bosqichni tugatamiz.',
     phoneSaved: 'Rahmat — raqamingiz saqlandi. Bronni yakunlash uchun bron sahifasiga qayting.',
     phoneSaveFailed: 'Raqamingizni saqlab bo‘lmadi. Bron sahifasiga qaytib, qaytadan urinib ko‘ring.',
+    subscribeButton: '💳 Obuna bo‘lish',
+    subscribeIntro: (price, days) =>
+      `💳 <b>Oikoz obunasi — ${days} kunga ${price}</b>\n\n` +
+      'Obuna bilan villalaringizni qo‘shish va tahrirlash, bronlarni kiritish va boshqarish, sanalarni band qilish hamda havolangiz orqali yangi bronlarni qabul qilish mumkin. Maklerlaringiz ham villalaringiz bilan ishlay oladi.\n\n' +
+      'Obunasiz hammasi ko‘rinadi, lekin faqat ko‘rish uchun.',
+    subscribeActiveNote: (until, days) =>
+      `Obunangiz ${until} gacha faol. Hozir to‘lasangiz, yana ${days} kun qo‘shiladi.`,
+    subscribeQrMissing: 'QR-kod hozircha mavjud emas. Birozdan so‘ng /subscribe buyrug‘ini qayta yuboring.',
+    receiptReceived: 'Qabul qilindi. Tez orada tasdiqlayman.',
+    receiptAlreadyPending: 'Oldingi chekingiz hali tekshirilmoqda. Tez orada xabar beraman.',
+    receiptAskScreenshot: 'Iltimos, to‘lov chekini skrinshot ko‘rinishida yuboring.',
+    receiptTooLarge: 'Fayl juda katta. Iltimos, chekning skrinshotini yuboring.',
+    receiptFailed: 'Chekni saqlab bo‘lmadi. Iltimos, uni qayta yuboring.',
+    subscriptionActive: (until) => `✅ To‘lov tasdiqlandi. Obunangiz ${until} gacha faol.`,
+    subscriptionRejected: (price) =>
+      `❌ To‘lovingizni topa olmadik. Aynan ${price} to‘laganingizni tekshiring va chek skrinshotini shu yerga qayta yuboring.`,
   },
 }

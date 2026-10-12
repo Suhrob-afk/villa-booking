@@ -27,6 +27,7 @@ import { useOnline } from '../lib/offline'
 import { quoteRange, splitTotal } from '../lib/pricing'
 import type { StringKey } from '../lib/strings'
 import { confirmAction, notify } from '../lib/telegram'
+import { useVillaWriteAccess } from '../lib/subscription'
 import { useBackButton } from '../lib/useBackButton'
 import {
   CLIENT_TYPES,
@@ -37,6 +38,7 @@ import {
   type Villa,
 } from '../lib/types'
 import MoneyInput from '../components/MoneyInput'
+import { ReadOnlyNotice } from '../components/Subscription'
 import { Alert, ErrorState, Loading, TopBar } from '../components/ui'
 
 /**
@@ -230,7 +232,11 @@ export default function BookingScreen() {
    * the client and the split, they just cannot edit them.
    */
   const ownerLogged = filingAsOwner && (isNew || booking?.manager_id === null)
-  const readOnly = (isOwner && !ownerLogged) || isCancelled || hold
+  // Changes follow the villa owner's subscription (0024), for the owner and a
+  // makler alike. The database refuses them anyway; this says so up front.
+  const access = useVillaWriteAccess(villa)
+  const locked = access !== 'open'
+  const readOnly = (isOwner && !ownerLogged) || isCancelled || hold || locked
 
   // Existing bookings keep the rate they were created with.
   const villaRate = booking?.commission_rate_snapshot ?? villa?.commission_rate ?? 0
@@ -344,6 +350,7 @@ export default function BookingScreen() {
         onBack={goBack}
       />
       <main className="screen">
+        {access !== 'open' && <ReadOnlyNotice access={access} />}
         {error && <Alert>{error}</Alert>}
         {isPastStay && !isCancelled && <Alert kind="info">{t('booking.pastDateNotice')}</Alert>}
         {isCancelled && <Alert kind="info">{t('booking.cancelledNotice')}</Alert>}
@@ -609,7 +616,7 @@ export default function BookingScreen() {
               <button
                 type="button"
                 className={`toggle ${depositPaid ? 'paid' : ''}`}
-                disabled={readOnly && !isOwner}
+                disabled={(readOnly && !isOwner) || locked}
                 onClick={async () => {
                   const next = !depositPaid
                   setDepositPaid(next)
@@ -710,6 +717,7 @@ export default function BookingScreen() {
             <button
               type="button"
               className={booking?.status === 'confirmed' ? 'button button-danger' : 'button button-secondary'}
+              disabled={locked}
               onClick={() => void toggleCancelled()}
             >
               {booking?.status === 'confirmed' ? t('booking.cancel') : t('booking.reopen')}
