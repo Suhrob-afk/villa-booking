@@ -5,7 +5,7 @@ import { Alert, ErrorState, Loading, TopBar } from '../components/ui'
 import { useAuth } from '../lib/auth'
 import { formatDateShort, formatRange, nightCount, parseISODate, startOfMonth } from '../lib/dates'
 import { DEPOSIT_CURRENCY, formatMoney } from '../lib/format'
-import { formatCardNumber } from '../lib/holds'
+import { formatCardNumber, receiptLink } from '../lib/holds'
 import { useI18n } from '../lib/i18n'
 import { quoteRange } from '../lib/pricing'
 import {
@@ -13,7 +13,6 @@ import {
   fetchPublicVilla,
   guestCap,
   isFreeNight,
-  markDepositSent,
   maxNightsFrom,
   NAME_MAX,
   NAME_MIN,
@@ -28,7 +27,7 @@ import {
   type SelectionRules,
 } from '../lib/publicBooking'
 import type { StringKey } from '../lib/strings'
-import { canRequestContact, notify, onForeground, requestContact } from '../lib/telegram'
+import { canOpenTelegramLink, canRequestContact, notify, onForeground, openTelegramLink, requestContact } from '../lib/telegram'
 import { CLIENT_TYPES, type ClientType } from '../lib/types'
 import { useBackButton } from '../lib/useBackButton'
 
@@ -118,7 +117,8 @@ export default function PublicVilla() {
   const [everSelected, setEverSelected] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const [takenNotice, setTakenNotice] = useState(false)
-  const [sentNotice, setSentNotice] = useState(false)
+  /** The booking whose receipt the guest was sent to the bot for. */
+  const [receiptAskedId, setReceiptAskedId] = useState<string | null>(null)
   const [showBreakdown, setShowBreakdown] = useState(false)
 
   // The form. A null name means "not edited yet": show the pre-filled one.
@@ -128,7 +128,7 @@ export default function PublicVilla() {
   const [note, setNote] = useState('')
   const [formError, setFormError] = useState<StringKey | null>(null)
 
-  const [busy, setBusy] = useState<'phone' | 'creating' | 'marking' | null>(null)
+  const [busy, setBusy] = useState<'phone' | 'creating' | null>(null)
   const [phoneIssue, setPhoneIssue] = useState<PhoneIssue>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -297,7 +297,6 @@ export default function PublicVilla() {
 
   function clearMessages() {
     setTakenNotice(false)
-    setSentNotice(false)
     setActionError(null)
     setPhoneIssue(null)
     setFormError(null)
@@ -400,32 +399,18 @@ export default function PublicVilla() {
     }
   }
 
-  async function markSent(booking: PublicHold) {
-    if (busy) return
-    setActionError(null)
-    setBusy('marking')
-    try {
-      const updated = await markDepositSent(booking.id)
-      if (!mounted.current) return
-      notify('success')
-      mergeBooking(updated)
-      setOpenId(null)
-      setSentNotice(true)
-      // Back up to the status line and the notice, above the calendar.
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-    } catch (err) {
-      if (!mounted.current) return
-      if (err instanceof PublicBookingError && err.hold) {
-        mergeBooking(err.hold)
-      } else {
-        notify('error')
-        const code = err instanceof PublicBookingError ? err.code : null
-        setActionError(code && ERROR_KEYS[code] ? t(ERROR_KEYS[code]!) : (err as Error).message || t('public.errorGeneric'))
-      }
-    } finally {
-      if (mounted.current) setBusy(null)
-    }
+  /**
+   * "I've sent the deposit": the receipt goes to the bot, which marks the hold
+   * sent and messages the owner once the screenshot (or "Send without
+   * receipt") arrives. The page notices on its next re-check, or when the
+   * guest comes back to it.
+   */
+  function openReceiptChat(booking: PublicHold) {
+    const url = receiptLink(booking.id)
+    if (!(canOpenTelegramLink() && openTelegramLink(url))) window.open(url, '_blank', 'noopener')
+    setReceiptAskedId(booking.id)
   }
+
 
   /**
    * The Clipboard API is missing or refused in some Telegram WebViews; the
@@ -750,15 +735,9 @@ export default function PublicVilla() {
                 {copied ? t('public.copied') : t('public.copyCard')}
               </button>
             </div>
-            {actionError && <Alert>{actionError}</Alert>}
-            <button
-              type="button"
-              className="button"
-              style={{ marginTop: 14 }}
-              disabled={busy !== null}
-              onClick={() => void markSent(opened)}
-            >
-              {busy === 'marking' ? t('public.marking') : t('public.markSent')}
+            {receiptAskedId === opened.id && <Alert kind="info">{t('public.receiptInBot')}</Alert>}
+            <button type="button" className="button" style={{ marginTop: 14 }} onClick={() => openReceiptChat(opened)}>
+              {receiptAskedId === opened.id ? t('public.openBotChat') : t('public.markSent')}
             </button>
             <p className="field-hint">{t('public.markSentHint')}</p>
           </div>
@@ -798,7 +777,6 @@ export default function PublicVilla() {
         </button>
       )}
 
-      {sentNotice && <Alert kind="info">{t('public.requestSent')}</Alert>}
       {!villa.accepting_bookings && (
         <Alert kind="info">{villa.bookings_paused ? t('public.bookingsPaused') : t('public.notAccepting')}</Alert>
       )}

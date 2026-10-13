@@ -210,7 +210,8 @@ const CLIENT_TYPE_LABELS: Record<Lang, Record<ClientType, string>> = {
   },
 }
 
-function stay(b: BookingContext['booking'], lang: Lang): string {
+/** "15 Oct 2026 → 17 Oct 2026 (2 nights)". Used in the guest's receipt request too. */
+export function stay(b: Pick<BookingContext['booking'], 'check_in' | 'check_out'>, lang: Lang): string {
   return `${formatDay(b.check_in, lang)} → ${formatDay(b.check_out, lang)} (${nightsLabel(nightCount(b.check_in, b.check_out), lang)})`
 }
 
@@ -252,6 +253,9 @@ export type Footer =
 interface OwnerCopy {
   depositTitle: string
   deposit: string
+  /** The receipt line: the screenshot is this message's photo, or there is none. */
+  receiptAttached: string
+  noReceipt: string
   depositAsk: (until: string) => string
   confirmButton: string
   notReceivedButton: string
@@ -273,6 +277,8 @@ export const OWNER_COPY: Record<Lang, OwnerCopy> = {
   en: {
     depositTitle: '💰 <b>Deposit sent — please check your card</b>',
     deposit: 'Deposit',
+    receiptAttached: 'Receipt: attached (the guest’s screenshot above)',
+    noReceipt: 'Receipt: none — the guest sent this without a screenshot',
     depositAsk: (until) =>
       `The guest says they’ve transferred the deposit. Once it has arrived, tap “Deposit received”. If it hasn’t, tap “Not received” and the guest can try again. The dates are held until ${until} (Tashkent time).`,
     confirmButton: '✅ Deposit received',
@@ -306,6 +312,8 @@ export const OWNER_COPY: Record<Lang, OwnerCopy> = {
   ru: {
     depositTitle: '💰 <b>Депозит отправлен — проверьте карту</b>',
     deposit: 'Депозит',
+    receiptAttached: 'Чек: приложен (скриншот гостя выше)',
+    noReceipt: 'Чек: нет — гость отправил без скриншота',
     depositAsk: (until) =>
       `Гость сообщает, что перевёл депозит. Когда деньги поступят, нажмите «Депозит получен». Если не пришли — «Не получен», и гость сможет попробовать ещё раз. Даты удерживаются до ${until} (по Ташкенту).`,
     confirmButton: '✅ Депозит получен',
@@ -339,6 +347,8 @@ export const OWNER_COPY: Record<Lang, OwnerCopy> = {
   uz: {
     depositTitle: '💰 <b>Depozit yuborildi — kartangizni tekshiring</b>',
     deposit: 'Depozit',
+    receiptAttached: 'Chek: ilova qilingan (mehmonning skrinshoti yuqorida)',
+    noReceipt: 'Chek: yo‘q — mehmon skrinshotsiz yubordi',
     depositAsk: (until) =>
       `Mehmon depozitni o‘tkazganini aytmoqda. Pul kelib tushgach, «Depozit keldi» tugmasini bosing. Kelmagan bo‘lsa — «Kelmadi», mehmon yana urinib ko‘ra oladi. Sanalar soat ${until} gacha (Toshkent vaqti) band turadi.`,
     confirmButton: '✅ Depozit keldi',
@@ -411,9 +421,29 @@ const GUEST_COPY: Record<Lang, GuestCopy> = {
 
 // --------------------------------------------------------------- messages ----
 
-function details(ctx: BookingContext, lang: Lang): string {
+/** Whether the owner's message carries the guest's receipt as its photo. */
+export type ReceiptState = 'attached' | 'none'
+
+export interface DepositMessageOptions {
+  /** Adds the receipt line. Left out, the message says nothing about a receipt. */
+  receipt?: ReceiptState
+  /**
+   * The text goes out as a photo caption, which Telegram caps at 1,024
+   * characters: the note is shortened to keep it under. The full note stays
+   * on the owner's booking card in the app.
+   */
+  caption?: boolean
+}
+
+/** Telegram's photo caption limit. */
+const CAPTION_MAX = 1024
+/** How much of the guest's note a caption keeps before "…". */
+const CAPTION_NOTE_MAX = 150
+
+function details(ctx: BookingContext, lang: Lang, receipt: ReceiptState | undefined, noteMax: number | null): string {
   const b = ctx.booking
   const copy = OWNER_COPY[lang]
+  const note = b.notes && noteMax !== null && b.notes.length > noteMax ? `${b.notes.slice(0, noteMax).trimEnd()}…` : b.notes
   return [
     `🏡 ${escapeHtml(ctx.villaName)}`,
     `👤 ${escapeHtml(b.client_name)}`,
@@ -421,8 +451,9 @@ function details(ctx: BookingContext, lang: Lang): string {
     `📅 ${stay(b, lang)}`,
     ...(b.guests_count ? [`👥 ${countLabel(b.guests_count, lang, GUEST_WORDS)}`] : []),
     ...(b.client_type ? [`🏷 ${CLIENT_TYPE_LABELS[lang][b.client_type]}`] : []),
-    ...(b.notes ? [`📝 ${escapeHtml(b.notes)}`] : []),
+    ...(note && noteMax !== 0 ? [`📝 ${escapeHtml(note)}`] : []),
     `💳 ${copy.deposit}: ${formatUzs(b.deposit_amount)}`,
+    ...(receipt ? [`🧾 ${receipt === 'attached' ? copy.receiptAttached : copy.noReceipt}`] : []),
   ].join('\n')
 }
 
@@ -432,11 +463,31 @@ function details(ctx: BookingContext, lang: Lang): string {
  * 'not_received' keeps Deposit received, because the money may still arrive
  * late; 'expired_free' offers Confirm anyway; everything else has no buttons.
  */
-export function depositMessage(ctx: BookingContext, footer: Footer | null): { text: string; reply_markup: Json } {
+export function depositMessage(
+  ctx: BookingContext,
+  footer: Footer | null,
+  options: DepositMessageOptions = {},
+): { text: string; reply_markup: Json } {
+  const message = buildDepositMessage(ctx, footer, options.receipt, options.caption ? CAPTION_NOTE_MAX : null)
+  if (!options.caption || message.text.length <= CAPTION_MAX) return message
+  // Still too long for a caption with a short note: leave the note out.
+  const withoutNote = buildDepositMessage(ctx, footer, options.receipt, 0)
+  if (withoutNote.text.length <= CAPTION_MAX) return withoutNote
+  // Never expected; cut at a line break, where no HTML tag is ever open.
+  const cut = withoutNote.text.lastIndexOf('\n', CAPTION_MAX - 1)
+  return { ...withoutNote, text: withoutNote.text.slice(0, cut > 0 ? cut : CAPTION_MAX) }
+}
+
+function buildDepositMessage(
+  ctx: BookingContext,
+  footer: Footer | null,
+  receipt: ReceiptState | undefined,
+  noteMax: number | null,
+): { text: string; reply_markup: Json } {
   const lang = ctx.owner.lang
   const copy = OWNER_COPY[lang]
   const b = ctx.booking
-  const head = `${copy.depositTitle}\n\n${details(ctx, lang)}`
+  const head = `${copy.depositTitle}\n\n${details(ctx, lang, receipt, noteMax)}`
 
   if (footer === null) {
     const until = b.hold_expires_at ? tashkentTime(b.hold_expires_at) : '—'
@@ -484,11 +535,18 @@ export type OwnerMessageKind = 'deposit_sent'
  * be searched for in the function logs, and stays in booking_owner_messages
  * with sent_at null and Telegram's error.
  */
+/** The guest's receipt, as Telegram knows it: re-sent by file id, never by URL. */
+export interface ReceiptFile {
+  telegramFileId: string
+  kind: 'photo' | 'document'
+}
+
 export async function notifyOwner(
   admin: SupabaseClient,
   bookingId: string,
   kind: OwnerMessageKind,
   attempt: number,
+  receipt: ReceiptFile | null = null,
 ): Promise<void> {
   try {
     const { error: claimError } = await admin
@@ -503,13 +561,23 @@ export async function notifyOwner(
     const ctx = await loadBookingContext(admin, bookingId)
     if (!ctx) return
 
-    const message = depositMessage(ctx, null)
-    const sent = await botCall('sendMessage', {
-      chat_id: ctx.owner.telegramId,
-      text: message.text,
-      parse_mode: 'HTML',
-      reply_markup: message.reply_markup,
-    })
+    // With a receipt: one message, the screenshot with the details as its
+    // caption and the buttons under it. Without: the same as text, saying so.
+    const message = depositMessage(ctx, null, { receipt: receipt ? 'attached' : 'none', caption: Boolean(receipt) })
+    const sent = receipt
+      ? await botCall(receipt.kind === 'photo' ? 'sendPhoto' : 'sendDocument', {
+          chat_id: ctx.owner.telegramId,
+          [receipt.kind]: receipt.telegramFileId,
+          caption: message.text,
+          parse_mode: 'HTML',
+          reply_markup: message.reply_markup,
+        })
+      : await botCall('sendMessage', {
+          chat_id: ctx.owner.telegramId,
+          text: message.text,
+          parse_mode: 'HTML',
+          reply_markup: message.reply_markup,
+        })
 
     if (sent.ok) {
       await admin
@@ -543,7 +611,7 @@ export async function notifyOwner(
 // ------------------------------------------------------------ guest sends ----
 
 /** The villa's public booking link, as owners share it (src/lib/holds.ts). */
-const bookingLink = (villaCode: string) =>
+export const bookingLink = (villaCode: string) =>
   `https://t.me/oikoz_villa_bot/open?startapp=${encodeURIComponent(villaCode)}`
 
 /**

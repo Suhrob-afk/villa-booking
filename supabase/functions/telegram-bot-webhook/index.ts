@@ -16,7 +16,9 @@
 // and saves the phone on their users row -- see savePublicContact().
 //
 // And it handles a villa owner's taps on the Deposit received / Not received
-// buttons that mark-deposit-sent sends them -- see handleBookingCallback().
+// buttons on the deposit message -- see handleBookingCallback() -- and the
+// guest's side before it: /start dr_<booking id> from the public page, the
+// receipt screenshot, and "Send without receipt" (./deposit-receipt.ts).
 //
 // And subscriptions: /subscribe (also /start subscribe, which the app's banner
 // opens, and a Subscribe button on /start), the receipt screenshot that
@@ -71,6 +73,14 @@ import {
   receiptWindowOpen,
 } from '../_shared/payments/subscription.ts'
 import { COPY, isLang, LANGUAGE_BUTTONS, LANGUAGE_PROMPT, type Lang } from './copy.ts'
+import {
+  depositRequestedAt,
+  handleDepositReceipt,
+  handleReceiptCallback,
+  parseReceiptCallback,
+  parseReceiptStart,
+  startReceiptRequest,
+} from './deposit-receipt.ts'
 
 const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? ''
 const MINI_APP_URL = Deno.env.get('MINI_APP_URL') ?? ''
@@ -97,6 +107,14 @@ const payments: PaymentProvider = new ManualPaynetProvider({
 // ------------------------------------------------------------ Telegram ----
 
 type Json = Record<string, unknown>
+
+/** The message a callback button sits on. A photo or document when it carries a receipt. */
+interface CallbackMessage {
+  chat: { id: number }
+  message_id: number
+  photo?: unknown
+  document?: unknown
+}
 
 async function callTelegram(method: string, payload: Json): Promise<void> {
   const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
@@ -364,8 +382,15 @@ async function handleCallback(cq: Json): Promise<void> {
   const id = cq.id as string
   const data = (cq.data as string) ?? ''
   const from = cq.from as { id: number }
-  const message = cq.message as { chat: { id: number }; message_id: number } | undefined
+  const message = cq.message as CallbackMessage | undefined
   if (!message) return
+
+  // The guest's "Send without receipt" / which-booking buttons.
+  const receiptTap = parseReceiptCallback(data)
+  if (receiptTap) {
+    await handleReceiptCallback(admin, id, from.id, message, receiptTap.action, receiptTap.bookingId)
+    return
+  }
 
   // The owner's deposit buttons have their own rules about answering and
   // editing, so they leave before the onboarding handling below.
@@ -474,7 +499,7 @@ async function handleCallback(cq: Json): Promise<void> {
 async function handleBookingCallback(
   callbackId: string,
   tapperId: number,
-  message: { chat: { id: number }; message_id: number },
+  message: CallbackMessage,
   action: BookingAction,
   bookingId: string,
 ): Promise<void> {
@@ -551,11 +576,15 @@ async function handleBookingCallback(
   const ctx = await loadBookingContext(admin, bookingId)
   if (!ctx) return
 
-  const edited = depositMessage(ctx, footer)
-  const edit = await botCall('editMessageText', {
+  // A message carrying the guest's receipt is a photo (or an image file): its
+  // text is a caption, edited with editMessageCaption and kept under
+  // Telegram's caption limit. Any other deposit message is plain text.
+  const withReceipt = Boolean(message.photo || message.document)
+  const edited = depositMessage(ctx, footer, { receipt: withReceipt ? 'attached' : 'none', caption: withReceipt })
+  const edit = await botCall(withReceipt ? 'editMessageCaption' : 'editMessageText', {
     chat_id: message.chat.id,
     message_id: message.message_id,
-    text: edited.text,
+    [withReceipt ? 'caption' : 'text']: edited.text,
     parse_mode: 'HTML',
     reply_markup: edited.reply_markup,
   })
@@ -804,6 +833,20 @@ async function savePublicContact(
   await send(chatId, COPY[lang].phoneSaved)
 }
 
+/**
+ * Whether a deposit receipt request is newer than the subscription receipt
+ * window -- or there is a request and no window.
+ */
+async function depositReceiptFirst(telegramId: number): Promise<boolean> {
+  const depositAt = await depositRequestedAt(admin, telegramId)
+  if (depositAt === null) return false
+  const { data: user } = await admin.from('users').select('id').eq('telegram_id', telegramId).maybeSingle()
+  if (!user) return true
+  const { data: sub } = await admin.from('subscriptions').select('receipt_requested_at').eq('user_id', user.id).maybeSingle()
+  const subscribeAt = sub?.receipt_requested_at ? Date.parse(sub.receipt_requested_at as string) : null
+  return subscribeAt === null || depositAt > subscribeAt
+}
+
 /** Loose on purpose: Telegram hands back local formats as well as +E.164. */
 const PHONE_RE = /^\+?\d[\d\s\-()]{6,20}$/
 
@@ -816,6 +859,14 @@ async function handleMessage(message: Json): Promise<void> {
   const telegramId = from.id
   const text = ((message.text as string) ?? '').trim()
   const contact = message.contact as { phone_number: string; user_id?: number } | undefined
+
+  // "I've sent the deposit" on the public page opens t.me/<bot>?start=dr_<id>.
+  // Before /start: a guest must never land in the onboarding questions.
+  const receiptBooking = parseReceiptStart(text)
+  if (receiptBooking) {
+    await startReceiptRequest(admin, chatId, telegramId, receiptBooking)
+    return
+  }
 
   // /start subscribe is what the app's banner opens (t.me/<bot>?start=subscribe).
   if (text === '/subscribe' || text.startsWith('/subscribe@') || /^\/start\s+subscribe$/.test(text)) {
@@ -848,8 +899,16 @@ async function handleMessage(message: Json): Promise<void> {
     return
   }
 
-  // After /subscribe, the next screenshot is the receipt.
-  if (await handleReceiptWindow(chatId, telegramId, message)) return
+  // A screenshot may be a guest's deposit receipt, or (after /subscribe) an
+  // owner's subscription receipt. Someone can be both; whichever they asked
+  // for last goes first, and the other still gets its turn.
+  if (await depositReceiptFirst(telegramId)) {
+    if (await handleDepositReceipt(admin, chatId, telegramId, receiptFrom(message))) return
+    if (await handleReceiptWindow(chatId, telegramId, message)) return
+  } else {
+    if (await handleReceiptWindow(chatId, telegramId, message)) return
+    if (await handleDepositReceipt(admin, chatId, telegramId, receiptFrom(message))) return
+  }
 
   if (!state) {
     await send(chatId, COPY.en.restartHint)

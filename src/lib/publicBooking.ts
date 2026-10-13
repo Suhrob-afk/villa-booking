@@ -157,12 +157,6 @@ export async function createPublicBooking(
   return hold
 }
 
-export async function markDepositSent(bookingId: string): Promise<PublicHold> {
-  assertOnline()
-  const { hold } = await call<{ hold: PublicHold }>('mark-deposit-sent', { booking_id: bookingId })
-  return hold
-}
-
 // ---------------------------------------------------------- date selection --
 
 /** Mirrors create_public_hold() in migrations 0018 and 0021. */

@@ -14,6 +14,7 @@
 
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
 import { botCall } from '../owner-bot.ts'
+import { MAX_RECEIPT_BYTES, receiptExtension, storeTelegramImage } from '../receipts.ts'
 import type {
   IncomingReceipt,
   Lang,
@@ -32,17 +33,6 @@ import {
   markSubscriptionPaid,
   rejectSubscriptionPayment,
 } from './subscription.ts'
-
-/** Receipts bigger than this are refused before downloading. */
-const MAX_RECEIPT_BYTES = 10 * 1024 * 1024
-
-const EXTENSIONS: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'image/heic': 'heic',
-  'image/heif': 'heif',
-}
 
 const INSTRUCTIONS: Record<Lang, (amount: string, plainAmount: string, days: number) => string> = {
   en: (amount, plain, days) =>
@@ -103,7 +93,7 @@ export class ManualPaynetProvider implements PaymentProvider {
    */
   async acceptReceipt(userId: string, receipt: IncomingReceipt): Promise<ReceiptResult> {
     const { admin } = this.config
-    if (!(receipt.contentType in EXTENSIONS)) return { outcome: 'unsupported' }
+    if (!receiptExtension(receipt.contentType)) return { outcome: 'unsupported' }
     if (receipt.sizeBytes !== null && receipt.sizeBytes > MAX_RECEIPT_BYTES) return { outcome: 'too_large' }
 
     const { data: row, error: insertError } = await admin
@@ -129,36 +119,13 @@ export class ManualPaynetProvider implements PaymentProvider {
     return { outcome: 'received', paymentId }
   }
 
-  /** Telegram -> private bucket, at '<user_id>/<payment_id>.<ext>'. */
+  /** Telegram -> private bucket, at '<user_id>/<payment_id>.<ext>' (../receipts.ts). */
   private async storeReceipt(userId: string, paymentId: string, receipt: IncomingReceipt): Promise<boolean> {
-    const token = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? ''
-    const file = await botCall('getFile', { file_id: receipt.telegramFileId })
-    if (!file.ok) {
-      console.error(`[subscription] getFile failed for payment ${paymentId}: ${file.error}`)
-      return false
-    }
-    const size = Number(file.result.file_size ?? 0)
-    if (size > MAX_RECEIPT_BYTES) return false
-
-    try {
-      const response = await fetch(`https://api.telegram.org/file/bot${token}/${file.result.file_path}`, {
-        signal: AbortSignal.timeout(15000),
-      })
-      if (!response.ok) throw new Error(`download ${response.status}`)
-      const bytes = new Uint8Array(await response.arrayBuffer())
-
-      const path = `${userId}/${paymentId}.${EXTENSIONS[receipt.contentType] ?? 'jpg'}`
-      const { error } = await this.config.admin.storage
-        .from('receipts')
-        .upload(path, bytes, { contentType: receipt.contentType, upsert: false })
-      if (error) throw new Error(error.message)
-
-      await this.config.admin.from('subscription_payments').update({ receipt_file_path: path }).eq('id', paymentId)
-      return true
-    } catch (err) {
-      console.error(`[subscription] could not store the receipt for payment ${paymentId}: ${(err as Error).message}`)
-      return false
-    }
+    const path = `${userId}/${paymentId}.${receiptExtension(receipt.contentType) ?? 'jpg'}`
+    const stored = await storeTelegramImage(this.config.admin, receipt.telegramFileId, path, receipt.contentType, 'subscription')
+    if (!stored) return false
+    await this.config.admin.from('subscription_payments').update({ receipt_file_path: path }).eq('id', paymentId)
+    return true
   }
 
   /**

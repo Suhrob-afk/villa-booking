@@ -63,6 +63,23 @@ interface Copy {
   receiptAskScreenshot: string
   receiptTooLarge: string
   receiptFailed: string
+  // A guest's deposit receipt, for a booking from the public page.
+  /** Asked once the deep link checks out: what the receipt is for. */
+  depositReceiptAsk: (villa: string, dates: string, amount: string) => string
+  depositSendWithout: string
+  depositReceiptAskAgain: string
+  depositReceiptReceived: string
+  depositSentWithout: string
+  depositReceiptTooLarge: string
+  depositReceiptFailed: string
+  /** Two of the guest's bookings are waiting for a receipt and none was named. */
+  depositReceiptWhich: string
+  depositReceiptPicked: (villa: string, dates: string) => string
+  /** Generic on purpose: never says whether the booking in the link exists. */
+  depositLinkInvalid: string
+  depositAlreadySent: string
+  depositHoldEnded: string
+  openBooking: string
   subscriptionActive: (until: string) => string
   subscriptionRejected: (price: string) => string
 }
@@ -104,6 +121,23 @@ export const COPY: Record<Lang, Copy> = {
     receiptAskScreenshot: 'Please send the payment receipt as a screenshot.',
     receiptTooLarge: 'That file is too large. Please send a screenshot of the receipt instead.',
     receiptFailed: 'Sorry, I couldn’t save your receipt. Please send it again.',
+    depositReceiptAsk: (villa, dates, amount) =>
+      `🧾 <b>Send a screenshot of your deposit transfer here.</b>\n\n🏡 ${villa}\n📅 ${dates}\n💳 ${amount}\n\nI’ll pass it to the owner, who checks the transfer and confirms your booking. No screenshot? Tap “Send without receipt”.`,
+    depositSendWithout: 'Send without receipt',
+    depositReceiptAskAgain:
+      'Please send the receipt as a photo or an image — a screenshot works best. If you can’t, tap “Send without receipt”.',
+    depositReceiptReceived:
+      '✅ Receipt received and sent to the owner. They’ll check the transfer and confirm your booking — I’ll let you know here.',
+    depositSentWithout:
+      '✅ Sent to the owner without a receipt. They’ll check the transfer and confirm your booking — I’ll let you know here.',
+    depositReceiptTooLarge: 'That file is too large (over 10 MB). Please send a screenshot instead.',
+    depositReceiptFailed: 'Sorry, I couldn’t save that receipt. Please send it again, or tap “Send without receipt”.',
+    depositReceiptWhich: 'Which booking is this receipt for? Tap it, then send the screenshot again.',
+    depositReceiptPicked: (villa, dates) => `🧾 Send the receipt screenshot for:\n\n🏡 ${villa}\n📅 ${dates}`,
+    depositLinkInvalid: 'This link isn’t active. Open the booking page and tap “I’ve sent the deposit” there.',
+    depositAlreadySent: 'You’ve already told the owner about this deposit. I’ll message you here when they reply.',
+    depositHoldEnded: 'This reservation is no longer on hold. Open the booking page to see where it stands.',
+    openBooking: 'Open booking',
     subscriptionActive: (until) => `✅ Payment confirmed. Your subscription is active until ${until}.`,
     subscriptionRejected: (price) =>
       `❌ We couldn’t find your payment. Please check that you paid exactly ${price}, then send the receipt screenshot here again.`,
@@ -145,6 +179,23 @@ export const COPY: Record<Lang, Copy> = {
     receiptAskScreenshot: 'Пожалуйста, отправьте чек об оплате в виде скриншота.',
     receiptTooLarge: 'Файл слишком большой. Пожалуйста, отправьте скриншот чека.',
     receiptFailed: 'Не удалось сохранить чек. Пожалуйста, отправьте его ещё раз.',
+    depositReceiptAsk: (villa, dates, amount) =>
+      `🧾 <b>Отправьте сюда скриншот перевода депозита.</b>\n\n🏡 ${villa}\n📅 ${dates}\n💳 ${amount}\n\nЯ передам его владельцу: он проверит перевод и подтвердит бронь. Нет скриншота? Нажмите «Отправить без чека».`,
+    depositSendWithout: 'Отправить без чека',
+    depositReceiptAskAgain:
+      'Пожалуйста, отправьте чек как фото или изображение — лучше всего скриншот. Если не получается, нажмите «Отправить без чека».',
+    depositReceiptReceived:
+      '✅ Чек получен и отправлен владельцу. Он проверит перевод и подтвердит бронь — я сообщу вам здесь.',
+    depositSentWithout:
+      '✅ Отправлено владельцу без чека. Он проверит перевод и подтвердит бронь — я сообщу вам здесь.',
+    depositReceiptTooLarge: 'Файл слишком большой (больше 10 МБ). Пожалуйста, отправьте скриншот.',
+    depositReceiptFailed: 'Не удалось сохранить чек. Отправьте его ещё раз или нажмите «Отправить без чека».',
+    depositReceiptWhich: 'К какой брони этот чек? Нажмите на неё и отправьте скриншот ещё раз.',
+    depositReceiptPicked: (villa, dates) => `🧾 Отправьте скриншот чека для брони:\n\n🏡 ${villa}\n📅 ${dates}`,
+    depositLinkInvalid: 'Эта ссылка неактивна. Откройте страницу бронирования и нажмите там «Я отправил(а) депозит».',
+    depositAlreadySent: 'Вы уже сообщили владельцу об этом депозите. Я напишу вам здесь, когда он ответит.',
+    depositHoldEnded: 'Эта бронь больше не удерживается. Откройте страницу бронирования, чтобы узнать её статус.',
+    openBooking: 'Открыть бронь',
     subscriptionActive: (until) => `✅ Оплата подтверждена. Ваша подписка активна до ${until}.`,
     subscriptionRejected: (price) =>
       `❌ Мы не нашли вашу оплату. Проверьте, что оплатили ровно ${price}, и отправьте скриншот чека сюда ещё раз.`,
@@ -187,6 +238,23 @@ export const COPY: Record<Lang, Copy> = {
     receiptAskScreenshot: 'Iltimos, to‘lov chekini skrinshot ko‘rinishida yuboring.',
     receiptTooLarge: 'Fayl juda katta. Iltimos, chekning skrinshotini yuboring.',
     receiptFailed: 'Chekni saqlab bo‘lmadi. Iltimos, uni qayta yuboring.',
+    depositReceiptAsk: (villa, dates, amount) =>
+      `🧾 <b>Depozit o‘tkazmasining skrinshotini shu yerga yuboring.</b>\n\n🏡 ${villa}\n📅 ${dates}\n💳 ${amount}\n\nUni egasiga yuboraman: u o‘tkazmani tekshirib, bronni tasdiqlaydi. Skrinshot yo‘qmi? «Cheksiz yuborish» tugmasini bosing.`,
+    depositSendWithout: 'Cheksiz yuborish',
+    depositReceiptAskAgain:
+      'Iltimos, chekni rasm yoki tasvir sifatida yuboring — skrinshot eng yaxshisi. Imkoni bo‘lmasa, «Cheksiz yuborish» tugmasini bosing.',
+    depositReceiptReceived:
+      '✅ Chek qabul qilindi va egasiga yuborildi. U o‘tkazmani tekshirib, bronni tasdiqlaydi — sizga shu yerda xabar beraman.',
+    depositSentWithout:
+      '✅ Egasiga cheksiz yuborildi. U o‘tkazmani tekshirib, bronni tasdiqlaydi — sizga shu yerda xabar beraman.',
+    depositReceiptTooLarge: 'Fayl juda katta (10 MB dan ortiq). Iltimos, skrinshot yuboring.',
+    depositReceiptFailed: 'Chekni saqlab bo‘lmadi. Uni qayta yuboring yoki «Cheksiz yuborish» tugmasini bosing.',
+    depositReceiptWhich: 'Bu chek qaysi bron uchun? Uni bosing va skrinshotni qayta yuboring.',
+    depositReceiptPicked: (villa, dates) => `🧾 Quyidagi bron uchun chek skrinshotini yuboring:\n\n🏡 ${villa}\n📅 ${dates}`,
+    depositLinkInvalid: 'Bu havola faol emas. Bron sahifasini oching va u yerda «Depozitni yubordim» tugmasini bosing.',
+    depositAlreadySent: 'Siz bu depozit haqida egasiga allaqachon xabar bergansiz. U javob berganda shu yerda yozaman.',
+    depositHoldEnded: 'Bu bron endi band qilib turilmayapti. Holatini bilish uchun bron sahifasini oching.',
+    openBooking: 'Bronni ochish',
     subscriptionActive: (until) => `✅ To‘lov tasdiqlandi. Obunangiz ${until} gacha faol.`,
     subscriptionRejected: (price) =>
       `❌ To‘lovingizni topa olmadik. Aynan ${price} to‘laganingizni tekshiring va chek skrinshotini shu yerga qayta yuboring.`,
