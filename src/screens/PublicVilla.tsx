@@ -724,6 +724,12 @@ export default function PublicVilla() {
             <div className="public-card">
               <span className="public-card-label">{t('public.cardLabel')}</span>
               <span className="public-card-number">{formatCardNumber(opened.card_number)}</span>
+              {/* For checking against what the banking app shows once the number is typed in. */}
+              {opened.card_name && (
+                <span className="public-card-name">
+                  <span className="public-card-label">{t('public.cardNameLabel')}</span> {opened.card_name}
+                </span>
+              )}
               {opened.owner_name && (
                 <span className="public-card-owner">{t('public.cardOwner', { name: opened.owner_name })}</span>
               )}

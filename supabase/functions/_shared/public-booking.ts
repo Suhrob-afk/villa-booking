@@ -144,10 +144,33 @@ export async function ownerDisplayName(admin: SupabaseClient, ownerId: string): 
   return ((data?.full_name as string | null)?.trim() || (data?.name as string | null)?.trim() || '') as string
 }
 
-/** The owner's card. Only ever sent to the visitor holding a live hold. */
-export async function payoutCard(admin: SupabaseClient, villaId: string): Promise<string | null> {
-  const { data } = await admin.from('villa_payout_details').select('card_number').eq('villa_id', villaId).maybeSingle()
-  return (data?.card_number as string | undefined) ?? null
+/** The owner's payout card, as a guest may see it: the number and the name on it -- nothing else. */
+export interface PayoutCard {
+  number: string
+  /** Null for a card saved before 0026, until the owner adds the name. */
+  name: string | null
+}
+
+/**
+ * The owner's card. Only ever sent to the visitor holding a live hold, by
+ * toPublicHold(). Selects exactly the two columns a guest may see; the rest
+ * of villa_payout_details (villa_id, updated_at) never leaves the server.
+ */
+export async function payoutCard(admin: SupabaseClient, villaId: string): Promise<PayoutCard | null> {
+  const { data, error } = await admin
+    .from('villa_payout_details')
+    .select('card_number, card_holder_name')
+    .eq('villa_id', villaId)
+    .maybeSingle()
+  if (error) {
+    // Deployed before migration 0026 added the name: the number alone, so the
+    // villa does not suddenly read as not taking bookings.
+    console.error(`payoutCard: ${error.message}; reading the card number alone`)
+    const fallback = await admin.from('villa_payout_details').select('card_number').eq('villa_id', villaId).maybeSingle()
+    return fallback.data?.card_number ? { number: fallback.data.card_number as string, name: null } : null
+  }
+  if (!data?.card_number) return null
+  return { number: data.card_number as string, name: (data.card_holder_name as string | null) ?? null }
 }
 
 // ------------------------------------------------------------------ holds ----
@@ -199,6 +222,8 @@ export interface PublicHold {
   seconds_left: number | null
   /** Only while the hold is live AND the visitor has not yet said they paid. */
   card_number: string | null
+  /** The name on that card, under the same rule. Null if the owner has not given one. */
+  card_name: string | null
   owner_name: string
 }
 
@@ -206,10 +231,11 @@ export function isLiveHold(row: Pick<BookingRow, 'status' | 'hold_expires_at'>, 
   return row.status === 'pending' && row.hold_expires_at !== null && Date.parse(row.hold_expires_at) > now
 }
 
-export function toPublicHold(row: BookingRow, ownerName: string, card: string | null): PublicHold {
+export function toPublicHold(row: BookingRow, ownerName: string, card: PayoutCard | null): PublicHold {
   const now = Date.now()
   const live = isLiveHold(row, now)
   const status: PublicHold['status'] = row.status === 'pending' && !live ? 'expired' : row.status
+  const showCard = live && row.client_marked_paid_at === null && card !== null
   return {
     id: row.id,
     status,
@@ -223,7 +249,8 @@ export function toPublicHold(row: BookingRow, ownerName: string, card: string | 
     not_received: row.client_marked_paid_at === null && row.deposit_not_received_count > 0,
     hold_expires_at: live ? row.hold_expires_at : null,
     seconds_left: live ? Math.max(0, Math.floor((Date.parse(row.hold_expires_at!) - now) / 1000)) : null,
-    card_number: live && row.client_marked_paid_at === null ? card : null,
+    card_number: showCard ? card!.number : null,
+    card_name: showCard ? card!.name : null,
     owner_name: ownerName,
   }
 }

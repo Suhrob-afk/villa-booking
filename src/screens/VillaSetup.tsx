@@ -70,6 +70,9 @@ function toInput(form: FormState, channelMaklerId: string | null): VillaInput {
   }
 }
 
+/** The database's limit on the name on a payout card (0026). */
+const CARD_NAME_MAX = 100
+
 /** Card numbers are typed with spaces and stored as bare digits. */
 function cardDigits(input: string): string {
   return input.replace(/\s/g, '')
@@ -100,6 +103,9 @@ export default function VillaSetup() {
   const [card, setCard] = useState('')
   /** What is stored now, so Save only writes the card when it changed. */
   const [savedCard, setSavedCard] = useState<string | null>(null)
+  /** The name on the card, as typed, and as stored (null on a card from before 0026). */
+  const [cardName, setCardName] = useState('')
+  const [savedCardName, setSavedCardName] = useState<string | null>(null)
   /**
    * False when the card could not be read (offline, say). The card is then
    * left alone on save -- an unread field must never be saved as "removed".
@@ -149,8 +155,10 @@ export default function VillaSetup() {
       setChannelMakler(channel)
       try {
         const stored = await loadVillaPayoutCard(villaId)
-        setSavedCard(stored)
-        setCard(stored ? formatCardNumber(stored) : '')
+        setSavedCard(stored?.number ?? null)
+        setCard(stored ? formatCardNumber(stored.number) : '')
+        setSavedCardName(stored?.name ?? null)
+        setCardName(stored?.name ?? '')
         setCardLoaded(true)
       } catch {
         setCardLoaded(false)
@@ -191,6 +199,16 @@ export default function VillaSetup() {
       setError(t('setup.cardInvalid'))
       return
     }
+    // The database stores names this way too (0026); doing it here keeps the
+    // "did it change" check honest.
+    const name = cardName.trim().replace(/\s+/g, ' ')
+    const cardChanged = (digits || null) !== savedCard || (digits ? name || null : null) !== savedCardName
+    // A card needs its name. An old card that still has none is left alone
+    // until the owner touches it -- Save must not start failing on its own.
+    if (!isNew && cardLoaded && digits && !name && cardChanged) {
+      setError(t('setup.cardNameMissing'))
+      return
+    }
     setSaving(true)
     setError(null)
     try {
@@ -201,9 +219,10 @@ export default function VillaSetup() {
         navigate(`/villa/${villa.id}`, { replace: true })
       } else {
         await updateVilla(villaId!, input)
-        if (cardLoaded && (digits || null) !== savedCard) {
-          await saveVillaPayoutCard(villaId!, digits || null)
+        if (cardLoaded && cardChanged) {
+          await saveVillaPayoutCard(villaId!, digits ? { number: digits, name } : null)
           setSavedCard(digits || null)
+          setSavedCardName(digits ? name : null)
         }
         notify('success')
         goBack()
@@ -523,6 +542,22 @@ export default function VillaSetup() {
                   placeholder="8600 0000 0000 0000"
                 />
                 <p className="field-hint">{cardLoaded ? t('setup.cardHint') : t('setup.cardUnavailable')}</p>
+              </div>
+
+              {cardLoaded && savedCard && !savedCardName && (
+                <Alert kind="info">{t('setup.cardNameNudge')}</Alert>
+              )}
+              <div className="field">
+                <label htmlFor="payout-card-name">{t('setup.cardNameLabel')}</label>
+                <input
+                  id="payout-card-name"
+                  autoComplete="off"
+                  maxLength={CARD_NAME_MAX}
+                  disabled={!cardLoaded}
+                  value={cardName}
+                  onChange={(e) => setCardName(e.target.value)}
+                />
+                <p className="field-hint">{t('setup.cardNameHint')}</p>
               </div>
 
               <div className="field">

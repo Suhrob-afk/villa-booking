@@ -58,6 +58,8 @@ export interface PublicHold {
   seconds_left: number | null
   /** Only while the hold is live and not yet marked paid. */
   card_number: string | null
+  /** The name on that card, under the same rule; null if the owner has not given one. */
+  card_name: string | null
   owner_name: string
 }
 

@@ -4,6 +4,7 @@
 // Request:  POST { initData, villa_code, check_in, check_out,
 //                  client_name, guests, client_type, note? }
 // Response: { hold }   -- the new 30-minute hold, with the owner's card number
+//                         and the name on it
 //                         and display name, for this visitor only
 // Errors:   { code }   -- not_registered, phone_required, not_found,
 //                         not_accepting, bookings_paused, invalid_dates, invalid_details,
