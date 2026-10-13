@@ -535,7 +535,6 @@ const en = {
   'public.errorTooManyGuests': 'This villa takes at most {max} guests.',
   'public.bookingTitle': 'Your booking',
   'public.close': 'Close',
-  'public.requestSent': 'Request sent. Your dates are held until the owner confirms.',
   'booking.guestsCount': 'Guests: {guests}',
   'public.holdTimer': 'Held for another {time}',
   'public.payInstructions': 'Transfer the deposit of {amount} to the owner’s card below, then tap “I’ve sent the deposit”.',
@@ -544,8 +543,9 @@ const en = {
   'public.copyCard': 'Copy number',
   'public.copied': 'Copied',
   'public.markSent': 'I’ve sent the deposit',
-  'public.marking': 'Sending…',
-  'public.markSentHint': 'Tap this only once the transfer has gone through. The owner checks it before confirming.',
+  'public.markSentHint': 'Tap this once the transfer has gone through. The bot will ask you for a screenshot of the receipt for the owner.',
+  'public.receiptInBot': 'Send the receipt screenshot in the bot chat to finish. No screenshot? You can send it without one there.',
+  'public.openBotChat': 'Open the bot chat',
   'public.datesLabel': 'Dates',
 
   // -------------------------------------------------- subscriptions --
@@ -1013,7 +1013,6 @@ const ru: Record<StringKey, string> = {
   'public.errorTooManyGuests': 'Максимум гостей для этой виллы: {max}.',
   'public.bookingTitle': 'Ваша бронь',
   'public.close': 'Закрыть',
-  'public.requestSent': 'Запрос отправлен. Даты удерживаются за вами, пока владелец не подтвердит.',
   'booking.guestsCount': 'Гости: {guests}',
   'public.holdTimer': 'Бронь держится ещё {time}',
   'public.payInstructions': 'Переведите депозит {amount} на карту владельца ниже, затем нажмите «Я отправил(а) депозит».',
@@ -1022,8 +1021,9 @@ const ru: Record<StringKey, string> = {
   'public.copyCard': 'Скопировать номер',
   'public.copied': 'Скопировано',
   'public.markSent': 'Я отправил(а) депозит',
-  'public.marking': 'Отправляем…',
-  'public.markSentHint': 'Нажимайте только после того, как перевод прошёл. Владелец проверит его перед подтверждением.',
+  'public.markSentHint': 'Нажмите после того, как перевод прошёл. Бот попросит скриншот чека для владельца.',
+  'public.receiptInBot': 'Чтобы завершить, отправьте скриншот чека в чате с ботом. Нет скриншота? Там можно отправить без него.',
+  'public.openBotChat': 'Открыть чат с ботом',
   'public.datesLabel': 'Даты',
 
   // -------------------------------------------------- subscriptions --
@@ -1489,7 +1489,6 @@ const uz: Record<StringKey, string> = {
   'public.errorTooManyGuests': 'Bu villa ko‘pi bilan {max} mehmonni qabul qiladi.',
   'public.bookingTitle': 'Broningiz',
   'public.close': 'Yopish',
-  'public.requestSent': 'So‘rov yuborildi. Egasi tasdiqlagunicha sanalar siz uchun band turadi.',
   'booking.guestsCount': 'Mehmonlar: {guests}',
   'public.holdTimer': 'Yana {time} davomida band turadi',
   'public.payInstructions': '{amount} miqdoridagi depozitni quyidagi egasining kartasiga o‘tkazing, so‘ng «Depozitni yubordim» tugmasini bosing.',
@@ -1498,8 +1497,9 @@ const uz: Record<StringKey, string> = {
   'public.copyCard': 'Raqamni nusxalash',
   'public.copied': 'Nusxalandi',
   'public.markSent': 'Depozitni yubordim',
-  'public.marking': 'Yuborilmoqda…',
-  'public.markSentHint': 'Faqat o‘tkazma amalga oshgandan keyin bosing. Egasi tasdiqlashdan oldin uni tekshiradi.',
+  'public.markSentHint': 'O‘tkazma amalga oshgach bosing. Bot egasi uchun chek skrinshotini so‘raydi.',
+  'public.receiptInBot': 'Yakunlash uchun bot chatiga chek skrinshotini yuboring. Skrinshot yo‘qmi? U yerda usiz ham yuborish mumkin.',
+  'public.openBotChat': 'Bot chatini ochish',
   'public.datesLabel': 'Sanalar',
 
   // -------------------------------------------------- subscriptions --

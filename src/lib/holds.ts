@@ -24,6 +24,14 @@ export function isHold(booking: Booking): boolean {
 }
 
 /** The share link an owner pastes into an Instagram bio or a channel post. */
+/**
+ * The bot chat where a guest sends the deposit receipt for one booking. The
+ * bot checks the booking is theirs before saying anything about it.
+ */
+export function receiptLink(bookingId: string): string {
+  return `https://t.me/oikoz_villa_bot?start=dr_${encodeURIComponent(bookingId)}`
+}
+
 export function bookingLink(villaCode: string): string {
   return `https://t.me/oikoz_villa_bot/open?startapp=${encodeURIComponent(villaCode)}`
 }

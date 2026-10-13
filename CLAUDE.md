@@ -94,6 +94,17 @@ Languages: en / ru / uz.
     `expired`.
   - Reject (`bk:r`, status `rejected`) is no longer offered but still works on
     owner messages sent before `0023`.
+  - Deposit receipts (`0025`): "I've sent the deposit" opens the bot at
+    `?start=dr_<booking id>`; the bot names the booking only after checking it
+    is the sender's own live hold (else one generic reply), and asks for a
+    screenshot or "Send without receipt". `submit_deposit_receipt()` then
+    marks it sent (two hours) and the owner gets ONE message -- the receipt as
+    a photo with the details as caption, or text saying there is none. A
+    receipt never confirms. Files: private `receipts` bucket under
+    `deposits/<booking_id>/<attempt>-<ms>.<ext>`, sent to the owner by
+    Telegram file id only. `deposit_receipt_requests` remembers which booking
+    a guest's next screenshot is for. `mark-deposit-sent` is no longer called
+    by the app (kept for cached old pages).
   - A lapsed hold is never confirmed silently, only via "Confirm anyway" while
     its dates are free, the guest marked it paid and check-in is not past.
   - `booking_owner_messages` records each owner message, one per (booking,
@@ -154,6 +165,13 @@ Agreed, not built yet.
   an old Reject); a plain expiry just shows Expired on the booking page. The
   2-minute sweep runs inside Postgres and cannot call Telegram, so this needs
   a scheduled Edge Function (or pg_net) that finds newly expired holds.
+
+- **Cleaning up receipt images.** Deposit receipts (`receipts/deposits/...`)
+  and subscription receipts (`receipts/<user_id>/...`) are kept forever:
+  nothing deletes them, and deleting a villa removes its bookings but never
+  their Storage files. A scheduled job could, for example, delete a
+  booking's `deposits/<booking_id>/` 90 days after check-out or once a hold
+  ends unconfirmed.
 
 ## Gotchas
 
