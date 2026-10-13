@@ -1394,6 +1394,7 @@ body.is-offline .topbar { top: 28px; }
   -webkit-user-select: all;
 }
 .public-card-owner { font-size: 13px; color: var(--text-muted); }
+.public-card-name { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
 
 .powered-by {
   margin: 28px 0 0;
@@ -1418,6 +1419,33 @@ body.is-offline .topbar { top: 28px; }
 }
 
 .villa-card-actions { padding: 0 16px 16px; }
+
+/* "Payout setup incomplete": a nudge, not an error. Muted, on its own line
+   above the Booking link button so the two never share a row on a narrow
+   screen, with a 44px tap target. */
+.villa-card-nudge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  margin: -6px 0 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--warning-text);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+.villa-card-nudge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
 
 /* The shared primary button, kept at a comfortable tap height. */
 .villa-card-link { min-height: 44px; }

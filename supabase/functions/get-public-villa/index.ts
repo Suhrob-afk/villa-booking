@@ -22,7 +22,8 @@
 //   my_bookings  the caller's OWN bookings on this villa that are still worth
 //                showing: live holds, upcoming confirmed stays, and holds that
 //                lapsed, were rejected or were cancelled in the last day. The
-//                card number rides only on a live hold not yet marked paid.
+//                card number and the name on it ride only on a live hold not
+//                yet marked paid.
 //   latest_id    which of those the page's status line is about: the newest
 //                live hold, else the most recently changed booking
 //

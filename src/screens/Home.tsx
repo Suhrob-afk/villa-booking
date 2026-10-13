@@ -1,7 +1,7 @@
 import { Share2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { fetchArchivedVillas, fetchVillas, setVillaArchived } from '../lib/api'
+import { fetchArchivedVillas, fetchVillas, fetchVillasMissingCardName, setVillaArchived } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { formatMoney, formatPercent } from '../lib/format'
 import { useI18n } from '../lib/i18n'
@@ -24,15 +24,22 @@ import { Empty, ErrorState, Loading, ProfileHeader, Toast } from '../components/
  * cannot contain another. The share button also stops propagation, so a tap
  * on it never opens the villa. It sits in its own full-width row: at 360px a
  * UZS card has no room for it beside the two prices.
+ *
+ * An owner whose payout card has no name yet (a card saved before 0026) gets
+ * a quiet "Payout setup incomplete" nudge on its own line above that button,
+ * leading to Villa Setup. Nothing is blocked; the villa works as before.
  */
 function VillaCard({
   villa,
   onOpen,
   onShare,
+  onFinishPayout,
 }: {
   villa: VillaWithAccess
   onOpen: () => void
   onShare?: () => void
+  /** Owner only, and only when the card has no name: opens Villa Setup. */
+  onFinishPayout?: () => void
 }) {
   const { t, tn } = useI18n()
 
@@ -79,6 +86,19 @@ function VillaCard({
         {body}
       </button>
       <div className="villa-card-actions">
+        {onFinishPayout && (
+          <button
+            type="button"
+            className="villa-card-nudge"
+            onClick={(event: MouseEvent) => {
+              event.stopPropagation()
+              onFinishPayout()
+            }}
+          >
+            {t('home.payoutIncomplete')}
+            <span aria-hidden="true">›</span>
+          </button>
+        )}
         <button
           type="button"
           className="button villa-card-link"
@@ -114,6 +134,8 @@ export default function Home() {
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null)
   const hideToast = useCallback(() => setToast(null), [])
   const subscription = useMySubscription()
+  /** Owned villas whose payout card still needs the name on it. */
+  const [missingCardName, setMissingCardName] = useState<Set<string>>(new Set())
   /** Tapped "add a villa" without a subscription: explain instead of opening the form. */
   const [showCreateNotice, setShowCreateNotice] = useState(false)
 
@@ -132,6 +154,13 @@ export default function Home() {
       setArchived(archivedRows)
     } catch (err) {
       setError((err as Error).message)
+    }
+    // Only a nudge: if it cannot be loaded (offline, or before 0026), there is
+    // simply no badge.
+    if (user.is_owner) {
+      fetchVillasMissingCardName()
+        .then((ids) => setMissingCardName(new Set(ids)))
+        .catch(() => setMissingCardName(new Set()))
     }
   }, [user])
 
@@ -219,6 +248,9 @@ export default function Home() {
                           // Owned means owner_id is the signed-in user, the same
                           // test is_villa_owner() makes. Makler cards get none.
                           onShare={() => void shareVilla(villa)}
+                          onFinishPayout={
+                            missingCardName.has(villa.id) ? () => navigate(`/villa/${villa.id}/setup`) : undefined
+                          }
                         />
                       ))
                     )}

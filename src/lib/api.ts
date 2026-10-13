@@ -26,6 +26,9 @@ function dbError(error: { message: string }): Error {
   if (error.message.includes('oikoz:subscription_required')) {
     return new Error(translate(currentLang(), 'error.subscriptionRequired'))
   }
+  if (error.message.includes('oikoz:card_name_required')) {
+    return new Error(translate(currentLang(), 'setup.cardNameMissing'))
+  }
   return new Error(error.message)
 }
 
@@ -139,30 +142,60 @@ async function loadVillaBookingCount(villaId: string): Promise<number> {
 
 // ---------------------------------------------------- public booking page --
 
+/** The owner's payout card and the name on it (0026). */
+export interface PayoutCardDetails {
+  /** 16 digits, no spaces. */
+  number: string
+  /** Null on a card saved before 0026, until the owner adds it. */
+  name: string | null
+}
+
 /**
  * The owner's payout card, from villa_payout_details -- a table only the
  * villa's owner can read, so it is never on the villa row maklers see.
  * Deliberately not cached: a card number has no business sitting in device
  * storage for the offline snapshot.
  */
-export async function loadVillaPayoutCard(villaId: string): Promise<string | null> {
+export async function loadVillaPayoutCard(villaId: string): Promise<PayoutCardDetails | null> {
   const rows = await supabase
     .from('villa_payout_details')
-    .select('card_number')
+    .select('card_number, card_holder_name')
     .eq('villa_id', villaId)
-    .then(unwrap<{ card_number: string }[]>)
-  return rows[0]?.card_number ?? null
+    .then(unwrap<{ card_number: string; card_holder_name: string | null }[]>)
+  const row = rows[0]
+  return row ? { number: row.card_number, name: row.card_holder_name } : null
 }
 
-/** Digits only, 16 of them; null removes the card. */
-export async function saveVillaPayoutCard(villaId: string, cardNumber: string | null): Promise<void> {
+/**
+ * Digits only, 16 of them, and the name on the card -- which the database
+ * requires with any card it is given (0026). Null removes the card.
+ */
+export async function saveVillaPayoutCard(villaId: string, card: { number: string; name: string } | null): Promise<void> {
   assertOnline()
-  const { error } = cardNumber
+  const { error } = card
     ? await supabase
         .from('villa_payout_details')
-        .upsert({ villa_id: villaId, card_number: cardNumber }, { onConflict: 'villa_id' })
+        .upsert({ villa_id: villaId, card_number: card.number, card_holder_name: card.name }, { onConflict: 'villa_id' })
     : await supabase.from('villa_payout_details').delete().eq('villa_id', villaId)
   if (error) throw dbError(error)
+}
+
+/**
+ * The owner's villas whose payout card has no name yet: Home nudges them to
+ * add it. Only ids are read -- never a card number -- and RLS limits the rows
+ * to villas the caller owns.
+ */
+async function loadVillasMissingCardName(): Promise<string[]> {
+  return supabase
+    .from('villa_payout_details')
+    .select('villa_id')
+    .is('card_holder_name', null)
+    .then(unwrap<{ villa_id: string }[]>)
+    .then((rows) => rows.map((row) => row.villa_id))
+}
+
+export function fetchVillasMissingCardName() {
+  return cached('payout:missing-name', () => loadVillasMissingCardName())
 }
 
 export interface MaklerRef {

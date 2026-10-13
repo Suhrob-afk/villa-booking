@@ -50,6 +50,12 @@ Languages: en / ru / uz.
   expired hold can stay `pending` for up to two minutes until the sweep.
 - Owner payout card: `villa_payout_details`, owner-only RLS. Never put it on
   `villas`, because linked maklers can read the whole villa row.
+  `card_holder_name` (`0026`) sits beside the number and follows the same
+  rules: guests get exactly the number and the name, only on their own live,
+  unpaid hold (`payoutCard()` / `toPublicHold()`). An owner saving a card in
+  the app must give the name (`oikoz:card_name_required`); cards from before
+  `0026` have none and keep working, with a nudge in Villa Setup and on the
+  Home villa card.
 - Guard triggers that test `current_user` must be `SECURITY INVOKER`: inside a
   SECURITY DEFINER function `current_user` is the owner (postgres), which made
   `users_update_guard` and `villas_delete_guard` no-ops until `0016`. The
